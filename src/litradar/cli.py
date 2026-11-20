@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from pathlib import Path
 
-from .config import DB_PATH
+from .config import DB_PATH, FULLTEXT_DIR, REQUEST_INTERVAL, ensure_dirs
 from .europepmc import build_query, iter_papers
-from .store import all_papers, connect, count, to_csv, upsert
+from .fulltext import FullText, fetch_fulltext
+from .store import (all_papers, connect, count, figures_for, fulltext_stats,
+                    get_fulltext, pending_fulltexts, save_fulltext, to_csv,
+                    upsert)
 
 
 def cmd_search(args: argparse.Namespace) -> int:
@@ -39,9 +43,70 @@ def cmd_stats(args: argparse.Namespace) -> int:
     total = count(conn)
     oa = conn.execute("SELECT COUNT(*) FROM papers WHERE is_oa=1").fetchone()[0]
     years = conn.execute("SELECT MIN(year), MAX(year) FROM papers").fetchone()
+    full, figs = fulltext_stats(conn)
     print(f"文献总数：{total}")
     print(f"开放获取：{oa}")
     print(f"年份范围：{years[0]} – {years[1]}")
+    print(f"已抓全文：{full} 篇")
+    print(f"图表条目：{figs} 个")
+    return 0
+
+
+def cmd_fetch(args: argparse.Namespace) -> int:
+    ensure_dirs()
+    conn = connect(args.db)
+    targets = [(args.pmcid, "")] if args.pmcid else pending_fulltexts(conn, args.limit)
+    if not targets:
+        print("没有待抓取的 OA 全文")
+        return 0
+
+    ok = fail = skip = figs = 0
+    for pmcid, title in targets:
+        existing = get_fulltext(conn, pmcid)
+        if existing and existing["status"] == "ok" and not args.force:
+            skip += 1
+            continue
+        try:
+            ft, raw = fetch_fulltext(pmcid)
+            xml_path = FULLTEXT_DIR / f"{pmcid}.xml"
+            xml_path.write_bytes(raw)
+            save_fulltext(conn, ft, xml_path)
+            conn.commit()
+            ok += 1
+            figs += len(ft.figures)
+            print(f"[ok] {pmcid} 正文 {len(ft.text)} 字 / 图表 {len(ft.figures)} 个 | {ft.title[:50]}")
+        except Exception as exc:  # noqa: BLE001 - 单篇失败不影响整批
+            save_fulltext(conn, FullText(pmcid=pmcid, status="error"), None, error=str(exc))
+            conn.commit()
+            fail += 1
+            print(f"[fail] {pmcid} {exc}")
+        if args.rate:
+            time.sleep(args.rate)
+
+    print(f"完成：成功 {ok}，跳过 {skip}，失败 {fail}，新增图表 {figs} → {args.db}")
+    return 0 if fail == 0 else 1
+
+
+def cmd_list_figures(args: argparse.Namespace) -> int:
+    conn = connect(args.db)
+    if args.pmcid:
+        pmcids = [args.pmcid]
+    else:
+        pmcids = [row[0] for row in conn.execute(
+            "SELECT DISTINCT pmcid FROM figures LIMIT ?", (int(args.limit),)).fetchall()]
+    total = 0
+    for pmcid in pmcids:
+        info = get_fulltext(conn, pmcid)
+        head = (info["title"][:60] if info else "")
+        print(f"\n== {pmcid} {head} ==")
+        for fig in figures_for(conn, pmcid):
+            total += 1
+            print(f"  {fig.label} [{fig.kind}] {fig.caption[:90]}")
+            if fig.image_url:
+                print(f"    图: {fig.image_url}")
+            if fig.cited_sentences:
+                print(f"    正文引用: {fig.cited_sentences[:120]}")
+    print(f"\n共 {total} 个图表")
     return 0
 
 
@@ -59,6 +124,11 @@ def cmd_list(args: argparse.Namespace) -> int:
     return 0
 
 
+def _add_db(parser: argparse.ArgumentParser) -> None:
+    # 让 --db 既能写在子命令前，也能写在子命令后
+    parser.add_argument("--db", default=argparse.SUPPRESS, help="SQLite 路径")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="litradar", description="文献雷达")
     parser.add_argument("--db", default=str(DB_PATH), help="SQLite 路径")
@@ -70,17 +140,35 @@ def build_parser() -> argparse.ArgumentParser:
     p_search.add_argument("--years", help="2012-2026")
     p_search.add_argument("--limit", type=int, default=60)
     p_search.set_defaults(func=cmd_search)
+    _add_db(p_search)
 
     p_stats = sub.add_parser("stats", help="查看库内统计")
     p_stats.set_defaults(func=cmd_stats)
+    _add_db(p_stats)
 
     p_export = sub.add_parser("export", help="导出 CSV")
     p_export.add_argument("--out", default="papers.csv")
     p_export.set_defaults(func=cmd_export)
+    _add_db(p_export)
 
     p_list = sub.add_parser("list", help="列出库内文献")
     p_list.add_argument("--limit", type=int, default=20)
     p_list.set_defaults(func=cmd_list)
+    _add_db(p_list)
+
+    p_fetch = sub.add_parser("fetch", help="抓取 OA 全文、图注与原图链接")
+    p_fetch.add_argument("--pmcid", help="只抓指定一篇")
+    p_fetch.add_argument("--limit", type=int, default=20, help="本批抓多少篇")
+    p_fetch.add_argument("--force", action="store_true", help="已抓过的也重抓")
+    p_fetch.add_argument("--rate", type=float, default=1.0, help="每篇之间停几秒")
+    p_fetch.set_defaults(func=cmd_fetch)
+    _add_db(p_fetch)
+
+    p_figs = sub.add_parser("list-figures", help="查看已抓到的图注与原图链接")
+    p_figs.add_argument("--pmcid", help="只看这一篇")
+    p_figs.add_argument("--limit", type=int, default=5, help="最多看几篇")
+    p_figs.set_defaults(func=cmd_list_figures)
+    _add_db(p_figs)
     return parser
 
 
