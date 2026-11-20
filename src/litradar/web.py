@@ -35,6 +35,12 @@ h1{font-size:26px;margin:0;letter-spacing:1px}
 .field{display:flex;flex-direction:column;gap:6px}
 .field select{width:100%;max-width:100%;min-width:0}
 .field.full{grid-column:1/-1}
+.field.span2{grid-column:span 2}
+.range{display:flex;align-items:center;gap:10px}
+.range input[type=date]{flex:1 1 0;min-width:0}
+.range .dash{color:var(--sub);flex:none}
+@media (max-width:760px){.grid{grid-template-columns:repeat(2,1fr)}.field.span2,.field.full{grid-column:1/-1}}
+@media (max-width:520px){.grid{grid-template-columns:1fr}}
 label{font-size:13px;color:var(--sub)}
 input,select,textarea{font:inherit;padding:9px 11px;border:1px solid var(--line);background:#fff;border-radius:6px;color:var(--ink)}
 textarea{min-height:76px;resize:vertical}
@@ -79,11 +85,16 @@ button:disabled{opacity:.45;cursor:not-allowed}
     <option>不限</option><option>3 个月</option><option>6 个月</option><option>1 年</option></select></div>
   <div class="field"><label>湿实验</label><select id="wet">
     <option>接受</option><option>只做干实验</option></select></div>
-  <div class="field"><label>年份范围</label><input id="years" value="2015-2026"></div>
+  <div class="field span2"><label>年份范围（起 — 止）</label>
+    <div class="range">
+      <input id="year_from" type="date" value="2015-01-01" min="1900-01-01" max="2100-12-31">
+      <span class="dash">—</span>
+      <input id="year_to" type="date" value="2026-12-31" min="1900-01-01" max="2100-12-31">
+    </div></div>
   <div class="field"><label>检索上限（篇）</label><input id="search" type="number" value="40" min="5" max="200"></div>
   <div class="field"><label>精读上限（篇）</label><input id="fetch" type="number" value="8" min="1" max="30"></div>
   <div class="field"><label>卡片上限（篇）</label><input id="cards" type="number" value="8" min="1" max="30"></div>
-  <div class="field"><label>模型（读取自 DSH）</label><select id="model"><option value="">正在读取 DSH 模型…</option></select></div>
+  <div class="field full"><label>模型（读取自 DSH）</label><select id="model"><option value="">正在读取 DSH 模型…</option></select></div>
 </div>
 <div class="actions"><button id="run">开始分析</button><span class="hint">全程自动跑：检索 → 抓全文 → 抽卡片 → 聚合 → 出简报</span></div>
 </div>
@@ -195,10 +206,14 @@ function poll(){
 $("run").onclick=()=>{
   const direction=$("direction").value.trim();
   if(!direction){alert("请先写一个研究方向");return;}
+  const from=$("year_from").value, to=$("year_to").value;
+  if(!from||!to){alert("请选择年份范围的起止日期");return;}
+  const fy=+from.slice(0,4), ty=+to.slice(0,4);
+  if(fy>ty){alert("起始年份不能晚于结束年份");return;}
   $("run").disabled=true;$("result").style.display="none";$("error").textContent="";
   $("progress").style.display="block";$("fill").style.width="0";$("pct").textContent="0%";$("step").textContent="提交中";
   const payload={direction,platform:$("platform").value,budget:$("budget").value,period:$("period").value,
-    wet_lab:$("wet").value,years:$("years").value,search_limit:+$("search").value,
+    wet_lab:$("wet").value,years:`${fy}-${ty}`,search_limit:+$("search").value,
     fetch_limit:+$("fetch").value,card_limit:+$("cards").value,model_name:$("model").value};
   fetch("/api/run",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)})
     .then(r=>r.json()).then(d=>{taskId=d.id;timer=setInterval(poll,1200);poll();})
