@@ -11,7 +11,7 @@ from pathlib import Path
 from .config import USER_AGENT, detect_proxy
 
 DEFAULT_BASE = "https://api.deepseek.com/v1"
-DEFAULT_MODEL = "deepseek-chat"
+DEFAULT_MODEL = "deepseek-flash"
 CREDENTIALS = Path.home() / ".dsh" / ".credentials.yaml"
 
 
@@ -43,22 +43,41 @@ def dsh_keys(path: Path | None = None) -> dict[str, str]:
 
 
 def resolve_model(name: str = "deepseek") -> tuple[str, str, str]:
-    """返回 (base_url, api_key, model)。优先环境变量，其次 DSH 凭据。"""
-    keys = dsh_keys()
-    base = os.environ.get("LITRADAR_API_BASE", DEFAULT_BASE)
-    model = os.environ.get("LITRADAR_MODEL", DEFAULT_MODEL)
-    api_key = os.environ.get("LITRADAR_API_KEY", "")
+    """返回 (base_url, api_key, model)。
 
-    if name == "deepseek":
-        api_key = api_key or keys.get("DEEPSEEK_API_KEY", "")
-        base = os.environ.get("LITRADAR_API_BASE", "https://api.deepseek.com/v1")
-        model = os.environ.get("LITRADAR_MODEL", "deepseek-chat")
-    elif name == "ling":
-        api_key = api_key or keys.get("LING_API_KEY", "")
-        base = os.environ.get("LITRADAR_API_BASE", "https://api.ling.ai/v1")
-        model = os.environ.get("LITRADAR_MODEL", "ling-chat")
+    具体模型 id（例如 `deepseek-v4-pro`、`Ling-3.0-flash`）交给 DSH 配置发现层解析，
+    这样面板选什么、请求就发到对应的 provider，而不是一律打到 DeepSeek。
+    """
+    keys = dsh_keys()
+    env_key = os.environ.get("LITRADAR_API_KEY", "")
+    env_base = os.environ.get("LITRADAR_API_BASE", "")
+    env_model = os.environ.get("LITRADAR_MODEL", "")
+
+    if name in ("", "deepseek", "ling"):
+        if name == "ling":
+            base = env_base or "https://api.ant-ling.com/v1"
+            model = env_model or "Ling-3.0-flash"
+            api_key = env_key or keys.get("LING_API_KEY", "")
+        else:
+            base = env_base or DEFAULT_BASE
+            model = env_model or DEFAULT_MODEL
+            api_key = env_key or keys.get("DEEPSEEK_API_KEY", "")
     else:
-        api_key = api_key or keys.get("DEEPSEEK_API_KEY", "")
+        from .model_catalog import find  # 延迟导入，避免与发现模块互相引用
+
+        entry = find(name)
+        if entry is None:
+            base = env_base or DEFAULT_BASE
+            model = env_model or name
+            api_key = env_key or keys.get("DEEPSEEK_API_KEY", "")
+        else:
+            provider = entry["provider"]
+            base = env_base or provider.get("baseURL") or DEFAULT_BASE
+            model = env_model or entry["id"]
+            env_name = provider.get("apiKeyEnv") or ""
+            api_key = env_key or (keys.get(env_name, "") if env_name else "") or keys.get(
+                "DEEPSEEK_API_KEY", ""
+            )
     if not api_key:
         raise RuntimeError("没有找到可用 API Key：请设置 LITRADAR_API_KEY，或在 DSH 凭据里配置")
     return base.rstrip("/"), api_key, model

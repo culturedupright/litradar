@@ -3,13 +3,27 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased]
+## [0.4.0] - 2026-11-20
 
-### Planned
-- 卡片抽取与证据定位
-- 领域聚合与方向候选
-- 本地 Web 界面
-- DSH 插件
+### Added
+- 结构化卡片抽取：9 字段 + `evidence` 引文，引文必须在归一化原文中命中，否则标“待核”
+- 跨文献聚合：共识 / 争议 / 空白 / 图表套路 / 3–5 个方向候选
+- 六件套简报：领域全景、证据矩阵、单篇卡片、图表复刻清单、方向候选、开题卡
+- 本地 Web 界面（`litradar serve`，默认 8899）：表单、进度条、六页签、下载
+- DSH 插件 `litradar-dsh-plugin`：左侧栏入口 + 面板 + 引擎托管，随 DSH 起停
+- **DSH 模型发现**（`model_catalog.py`）：读 `~/.dsh/profiles/*/cordis.patch.yml` 的 providers，
+  合并官方 DeepSeek `/v1/models` 实时探测，`/api/models` 输出全部可选模型，UI 下拉随之动态生成
+- 模型路由：按 provider 的 `baseURL` + `apiKeyEnv` 取 Key，Key 一律复用 DSH 凭据，插件不再二次填写
+- 分发打包：`scripts/pack.ps1` 产出 `dist/`（插件 tgz + 引擎 zip + 安装/卸载脚本 + 说明）
+
+### Changed
+- `DEFAULT_MODEL` 改为 `deepseek-flash`
+- `llm.resolve_model` 改为走模型目录路由，不再写死两家
+
+## [0.3.0] - 2026-11-20
+
+### Added
+- 卡片 / 聚合 / 简报 / 本地 Web 界面 / DSH 插件初版
 
 ## [0.2.0] - 2026-11-20
 

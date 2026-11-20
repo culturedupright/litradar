@@ -11,6 +11,7 @@ from urllib.parse import parse_qs, urlparse
 
 from .config import DB_PATH
 from .llm import resolve_model
+from .model_catalog import list_models
 from .pipeline import run_pipeline
 
 TASKS: dict[str, dict] = {}
@@ -32,6 +33,7 @@ h1{font-size:26px;margin:0;letter-spacing:1px}
 .tag{color:var(--sub);font-size:13px}
 .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
 .field{display:flex;flex-direction:column;gap:6px}
+.field select{width:100%;max-width:100%;min-width:0}
 .field.full{grid-column:1/-1}
 label{font-size:13px;color:var(--sub)}
 input,select,textarea{font:inherit;padding:9px 11px;border:1px solid var(--line);background:#fff;border-radius:6px;color:var(--ink)}
@@ -81,7 +83,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
   <div class="field"><label>检索上限（篇）</label><input id="search" type="number" value="40" min="5" max="200"></div>
   <div class="field"><label>精读上限（篇）</label><input id="fetch" type="number" value="8" min="1" max="30"></div>
   <div class="field"><label>卡片上限（篇）</label><input id="cards" type="number" value="8" min="1" max="30"></div>
-  <div class="field"><label>模型</label><select id="model"><option value="deepseek">DeepSeek</option><option value="ling">蚂蚁 Ling</option></select></div>
+  <div class="field"><label>模型（读取自 DSH）</label><select id="model"><option value="">正在读取 DSH 模型…</option></select></div>
 </div>
 <div class="actions"><button id="run">开始分析</button><span class="hint">全程自动跑：检索 → 抓全文 → 抽卡片 → 聚合 → 出简报</span></div>
 </div>
@@ -105,6 +107,24 @@ button:disabled{opacity:.45;cursor:not-allowed}
 <script>
 let taskId=null,timer=null;
 const $=id=>document.getElementById(id);
+function loadModels(){
+  fetch("/api/models").then(r=>r.json()).then(data=>{
+    const sel=$("model");sel.innerHTML="";
+    (data.providers||[]).forEach(p=>{
+      const group=document.createElement("optgroup");
+      group.label=p.label+(p.key?"":"（未配 Key）");
+      (p.models||[]).forEach(m=>{
+        const opt=document.createElement("option");
+        opt.value=m.id;opt.textContent=m.label;
+        if(m.id===data.default)opt.selected=true;
+        group.appendChild(opt);
+      });
+      if(group.children.length)sel.appendChild(group);
+    });
+    if(!sel.options.length)sel.innerHTML='<option value="deepseek-flash">deepseek-flash</option>';
+  }).catch(()=>{$("model").innerHTML='<option value="deepseek-flash">deepseek-flash</option>';});
+}
+loadModels();
 function splitSections(md){
   const out=[];let cur={title:"总览",body:[]};
   md.split(/\\r?\\n/).forEach(line=>{
@@ -220,6 +240,12 @@ class Handler(BaseHTTPRequestHandler):
         query = parse_qs(route.query)
         if route.path == "/":
             self._send(200, PAGE.encode("utf-8"), "text/html; charset=utf-8")
+            return
+        if route.path == "/api/models":
+            try:
+                self._json(list_models())
+            except Exception as exc:  # noqa: BLE001
+                self._json({"error": f"读取 DSH 模型配置失败：{exc}"}, 500)
             return
         if route.path == "/api/health":
             try:

@@ -4,7 +4,7 @@
 
 输入一句话方向（可选平台、预算、周期），输出六件东西：领域全景、证据矩阵、单篇卡片、图表复刻清单、方向候选、开题卡。
 
-**当前状态：`v0.2.0`，检索层与 OA 全文/图注抓取可跑。** 卡片抽取、聚合、界面、DSH 插件都在路线图里，不假装已完成。
+**当前状态：`v0.4.0`。** 整条流水线可跑：检索 → 抓 OA 全文/图注 → 抽结构化卡片 → 跨文献聚合 → 六件套简报 → 本地 Web 界面，并已挂进 DeepSeek Harness（DSH）左侧栏。模型由 DSH 内部模型目录自动发现，Key 复用 DSH 凭据。
 
 ## 它解决什么
 
@@ -19,17 +19,34 @@ LitRadar 把这几件事做成一条流水线，每条结论都要求带证据�
 
 ## 安装
 
-```bash
-python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
-pip install -e ".[dev]"
+### 方式一：装成 DSH 插件（推荐）
+
+拿 `dist/` 目录（`scripts/pack.ps1` 生成）里的东西，在 PowerShell 里：
+
+```powershell
+.\install.ps1 -Profile both      # web + 桌面版都装
+.\uninstall.ps1 -Profile both    # 卸载
 ```
 
-要求 Python 3.10+，运行时只用标准库，不额外装依赖。
+细节见 [`packaging/安装与卸载.md`](packaging/安装与卸载.md)。装好后 DSH 左侧栏「新会话」下面有「题眼 LitRadar」。
+
+### 方式二：只在本机跑引擎（开发用）
+
+需要 Python 3.11+，运行时不装额外依赖（PyYAML 用于读 DSH 配置）。
+
+```powershell
+.\litradar.cmd run --direction "香豆素如何塑造植物根际微生物组" --limit 20
+.\litradar.cmd serve --port 8899     # 浏览器开 http://127.0.0.1:8899
+```
 
 ## 用法
 
 ```bash
+# 一条命令跑完整流水线：规划检索式 → 检索 → 抓全文 → 抽卡片 → 聚合 → 写简报
+litradar run --direction "香豆素如何塑造植物根际微生物组" --limit 20 --cards 8
+
+# 产物在 $LITRADAR_HOME/runs/<时间戳>/：report.md、papers.csv、summary.json
+
 # 直接检索
 litradar search --query "coumarin AND rhizosphere" --limit 60
 
@@ -73,17 +90,18 @@ Windows 下可直接用仓库根目录的 `litradar.cmd`（走系统 Python，�
 | --- | --- | --- |
 | v0.1.0 | Europe PMC 检索、PICO 检索式、SQLite、CSV 导出、测试与 CI | ✅ |
 | v0.2.0 | OA 全文与图注抓取（JATS XML + `cloudpmc-urn` CDN）、引用句配对 | ✅ |
-| v0.3.0 | 结构化卡片抽取（9 字段 + 证据定位） | 计划中 |
-| v0.4.0 | 领域聚合 + 方向候选 + 开题卡 | 计划中 |
-| v0.5.0 | 本地 Web 界面 + 导出 Markdown/Excel/PDF | 计划中 |
-| v0.6.0 | DSH 插件：左侧栏入口 + 面板 | 计划中 |
+| v0.3.0 | 结构化卡片抽取、领域聚合、六件套简报、本地 Web 界面、DSH 插件 | ✅ |
+| v0.4.0 | DSH 模型自动发现 + provider 路由、可分发包（tgz + 引擎 zip + 安装/卸载脚本） | ✅ |
+| 下一步 | 并行抓取、图表复刻清单自动生成、中文库接入 | 计划中 |
 
 ## 仓库结构
 
 ```
-src/litradar/      # 引擎（检索、存储、后续流水线）
+src/litradar/      # 引擎：检索、全文、卡片、聚合、简报、Web、模型发现
+dsh-plugin/        # DSH 插件包（宿主侧 + 客户端侧）
+packaging/         # install.ps1 / uninstall.ps1 / 安装与卸载.md
+scripts/pack.ps1   # 打 dist/ 分发包
 tests/             # 离线单测，不依赖网络
-scripts/           # 一次性数据采集脚本
 docs/              # 架构与插件说明
 .github/workflows/ # CI 与 Release
 ```
