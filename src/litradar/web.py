@@ -10,7 +10,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from .config import DB_PATH
-from .llm import resolve_model
+from .llm import resolve_model, set_activity
 from .model_catalog import list_models
 from .pipeline import run_pipeline
 
@@ -51,6 +51,10 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .panel{margin-top:26px;background:#fff;border:1px solid var(--line);border-radius:8px;padding:20px}
 .bar{height:6px;background:#e8ebef;border-radius:4px;overflow:hidden}
 .bar>i{display:block;height:100%;width:0;background:var(--accent);transition:width .3s}
+.log{margin-top:10px;max-height:200px;overflow:auto;background:#f7f8fa;border:1px solid var(--line);border-radius:6px;padding:9px 11px;font:12px/1.65 "Cascadia Mono",Consolas,monospace;color:#3d4650;white-space:pre-wrap;word-break:break-all}
+.log:empty{display:none}
+.log .hit{color:var(--warn)}
+.live{margin-top:8px;font-size:12px;color:var(--sub)}
 .step{display:flex;justify-content:space-between;margin-top:10px;font-size:13px;color:var(--sub)}
 .tabs{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 14px}
 .tabs button{padding:7px 14px;background:#eef1f4;color:var(--ink);font-size:13px}
@@ -103,6 +107,8 @@ button:disabled{opacity:.45;cursor:not-allowed}
   <div class="bar"><i id="fill"></i></div>
   <div class="step"><span id="step">准备中</span><span id="pct">0%</span></div>
   <div class="hint" id="detail" style="margin-top:8px"></div>
+  <div class="live" id="live"></div>
+  <div class="log" id="log"></div>
   <div class="err" id="error"></div>
 </div>
 
@@ -195,12 +201,41 @@ function showResult(res){
     });
   });
 }
+let liveBase=null;
+function fmtSec(n){
+  n=Math.max(0,Math.floor(n));
+  const h=Math.floor(n/3600),m=Math.floor(n%3600/60),s=n%60;
+  return h?`${h}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`:`${m}:${String(s).padStart(2,"0")}`;
+}
+function tickLive(){
+  if(!liveBase)return;
+  const d=(Date.now()-liveBase.at)/1000;
+  const waited=liveBase.step_age+d;
+  const hint=waited>25?"（模型还在返回，页面没死）":"";
+  $("live").textContent=`已运行 ${fmtSec(liveBase.elapsed+d)} · 本步已等 ${fmtSec(waited)}${hint}`;
+}
+setInterval(tickLive,1000);
+function renderLogs(lines){
+  const box=$("log");
+  const nearBottom=box.scrollTop+box.clientHeight>=box.scrollHeight-24;
+  box.innerHTML="";
+  (lines||[]).forEach(t=>{
+    const d=document.createElement("div");
+    if(t.indexOf("×")>=0||t.indexOf("失败")>=0)d.className="hit";
+    d.textContent=t;
+    box.appendChild(d);
+  });
+  if(nearBottom)box.scrollTop=box.scrollHeight;
+}
 function poll(){
   fetch("/api/status?id="+taskId).then(r=>r.json()).then(s=>{
     $("fill").style.width=s.percent+"%";$("pct").textContent=s.percent+"%";
     $("step").textContent=s.step;$("detail").textContent=s.detail;
-    if(s.error){$("error").textContent=s.error;clearInterval(timer);$("run").disabled=false;return;}
-    if(s.done){clearInterval(timer);$("run").disabled=false;showResult(s.result);}
+    liveBase={elapsed:s.elapsed||0,step_age:s.step_age||0,at:Date.now()};
+    tickLive();
+    renderLogs(s.logs);
+    if(s.error){liveBase=null;$("error").textContent=s.error;clearInterval(timer);$("run").disabled=false;return;}
+    if(s.done){liveBase=null;clearInterval(timer);$("run").disabled=false;showResult(s.result);}
   }).catch(e=>{$("error").textContent=String(e);clearInterval(timer);$("run").disabled=false;});
 }
 $("run").onclick=()=>{
@@ -212,6 +247,7 @@ $("run").onclick=()=>{
   if(fy>ty){alert("起始年份不能晚于结束年份");return;}
   $("run").disabled=true;$("result").style.display="none";$("error").textContent="";
   $("progress").style.display="block";$("fill").style.width="0";$("pct").textContent="0%";$("step").textContent="提交中";
+  $("log").innerHTML="";$("live").textContent="";liveBase=null;
   const payload={direction,platform:$("platform").value,budget:$("budget").value,period:$("period").value,
     wet_lab:$("wet").value,years:`${fy}-${ty}`,search_limit:+$("search").value,
     fetch_limit:+$("fetch").value,card_limit:+$("cards").value,model_name:$("model").value};
@@ -277,7 +313,10 @@ class Handler(BaseHTTPRequestHandler):
             if not task:
                 self._json({"error": "任务不存在"}, 404)
                 return
-            self._json({k: task[k] for k in ("step", "detail", "percent", "done", "error", "result")})
+            self._json({k: task[k] for k in ("step", "detail", "percent", "done", "error", "result")}
+                       | {"logs": task.get("logs", [])[-80:],
+                          "elapsed": int(time.time() - task.get("t0", time.time())),
+                          "step_age": int(time.time() - task.get("last", time.time()))})
             return
         if route.path == "/api/report":
             task_id = (query.get("id") or [""])[0]
@@ -318,15 +357,34 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": "缺少研究方向"}, 400)
             return
         task_id = uuid.uuid4().hex[:12]
+        now = time.time()
         with LOCK:
             TASKS[task_id] = {"step": "排队中", "detail": "", "percent": 0,
-                              "done": False, "error": "", "result": None}
+                              "done": False, "error": "", "result": None,
+                              "logs": [], "t0": now, "last": now}
+
+        def _log(text: str) -> None:
+            line = f"{time.strftime('%H:%M:%S')}  {text}"
+            with LOCK:
+                task = TASKS.get(task_id)
+                if task is None:
+                    return
+                task["logs"].append(line)
+                del task["logs"][:-200]
 
         def progress(step: str, detail: str, percent: int) -> None:
             with LOCK:
-                TASKS[task_id].update(step=step, detail=detail, percent=percent)
+                task = TASKS[task_id]
+                changed = (task["step"], task["detail"], task["percent"]) != (step, detail, percent)
+                task.update(step=step, detail=detail, percent=percent, last=time.time())
+            if changed:
+                _log(f"[{step}] {detail}")
+
+        def note(text: str) -> None:
+            _log(text)
 
         def worker() -> None:
+            set_activity(note)
             try:
                 result = run_pipeline(
                     direction,
@@ -341,13 +399,18 @@ class Handler(BaseHTTPRequestHandler):
                     model_name=payload.get("model_name", "deepseek"),
                     db_path=DB_PATH,
                     progress=progress,
+                    note=note,
                 )
                 with LOCK:
                     TASKS[task_id].update(done=True, result=result, percent=100, step="完成")
+                _log("完成：简报与 CSV 已写入 runs 目录")
             except Exception as exc:  # noqa: BLE001
                 with LOCK:
                     TASKS[task_id].update(error=f"{exc}\n{traceback.format_exc(limit=3)}",
                                           done=True, step="失败")
+                _log(f"× 失败：{str(exc)[:120]}")
+            finally:
+                set_activity(None)
 
         threading.Thread(target=worker, daemon=True).start()
         self._json({"id": task_id})

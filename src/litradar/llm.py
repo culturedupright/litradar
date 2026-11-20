@@ -7,12 +7,30 @@ import time
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 from .config import USER_AGENT, detect_proxy
 
 DEFAULT_BASE = "https://api.deepseek.com/v1"
 DEFAULT_MODEL = "deepseek-flash"
 CREDENTIALS = Path.home() / ".dsh" / ".credentials.yaml"
+
+# 界面想知道“模型请求正在进行”，这里挂一个回调；失败、重试都会报出来。
+_activity: "Callable[[str], None] | None" = None
+
+
+def set_activity(fn=None) -> None:
+    global _activity
+    _activity = fn
+
+
+def _note(text: str) -> None:
+    if _activity is None:
+        return
+    try:
+        _activity(text)
+    except Exception:  # noqa: BLE001 - 上报失败不能影响流水线
+        pass
 
 
 @dataclass
@@ -111,20 +129,27 @@ def chat(messages: list[dict[str, str]], model_name: str = "deepseek",
         "messages": messages,
         "temperature": temperature,
     }
+    prompt_chars = sum(len(m.get("content") or "") for m in messages)
     last: Exception | None = None
     for attempt in range(retries):
+        _note(f"→ {model} 发起请求（第 {attempt + 1}/{retries} 次，输入约 {prompt_chars} 字）")
+        began = time.time()
         try:
             data = _post(f"{base}/chat/completions", payload, api_key)
             content = data["choices"][0]["message"]["content"]
             usage = data.get("usage") or {}
-            return content, Usage(
+            result = Usage(
                 prompt_tokens=int(usage.get("prompt_tokens") or 0),
                 completion_tokens=int(usage.get("completion_tokens") or 0),
                 total_tokens=int(usage.get("total_tokens") or 0),
             )
+            _note(f"✓ {model} 返回 {result.total_tokens} tokens，耗时 {time.time() - began:.1f}s")
+            return content, result
         except Exception as exc:  # noqa: BLE001 - 限流/超时统一重试
             last = exc
-            time.sleep(2 * (attempt + 1))
+            wait = 2 * (attempt + 1)
+            _note(f"× {type(exc).__name__}：{str(exc)[:80]}；{wait}s 后重试")
+            time.sleep(wait)
     raise RuntimeError(f"模型调用失败：{last}")
 
 

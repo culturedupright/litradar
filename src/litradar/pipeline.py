@@ -18,6 +18,16 @@ from .store import (connect, figures_for, get_cards, get_fulltext,
                     save_fulltext, save_report, to_csv, upsert)
 
 Progress = Callable[[str, str, int], None]
+Note = Callable[[str], None]
+
+
+def _n(note: Note | None, text: str) -> None:
+    """往界面日志里补一条，不改变百分比。"""
+    if note:
+        try:
+            note(text)
+        except Exception:  # noqa: BLE001
+            pass
 
 PLAN_PROMPT = """把下面的中文研究方向翻成 Europe PMC 能用的英文布尔检索式。
 要求：只用英文关键词与同义词，用 OR 连接同义词、用 AND 连接不同概念；不要加年份。
@@ -50,7 +60,8 @@ def run_pipeline(direction: str, *, platform: str = "不限", budget: str = "不
                  fetch_limit: int = 8, card_limit: int = 8,
                  model_name: str = "deepseek",
                  db_path: Path | str = DB_PATH,
-                 progress: Progress | None = None) -> dict:
+                 progress: Progress | None = None,
+                 note: Note | None = None) -> dict:
     ensure_dirs()
     conn = connect(db_path)
     started = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -59,14 +70,18 @@ def run_pipeline(direction: str, *, platform: str = "不限", budget: str = "不
     tokens = 0
 
     _step(progress, "规划检索式", "正在把研究方向翻成英文检索式", 3)
+    _n(note, f"方向：{direction[:60]}；模型：{model_name}")
     query, pico, used = plan_query(direction, model_name)
     tokens += used
     _step(progress, "规划检索式", f"检索式：{query[:120]}", 8)
+    _n(note, f"检索式定稿：{query[:160]}")
 
     added = 0
     for paper in iter_papers(query, limit=search_limit):
         upsert(conn, paper)
         added += 1
+        if added % 5 == 0:
+            _n(note, f"检索：已收 {added} 条候选")
     conn.commit()
     _step(progress, "检索", f"写入 {added} 条候选文献", 20)
 
@@ -74,6 +89,7 @@ def run_pipeline(direction: str, *, platform: str = "不限", budget: str = "不
     fetched = 0
     for index, (pmcid, _title) in enumerate(targets, start=1):
         _step(progress, "抓全文", f"{pmcid}（{index}/{len(targets)}）", 20 + int(18 * index / max(1, len(targets))))
+        _n(note, f"抓全文 {pmcid}（{index}/{len(targets)}）：请求 Europe PMC")
         try:
             ft, raw = fetch_fulltext(pmcid)
             xml_path = Path(FULLTEXT_DIR) / f"{pmcid}.xml"
@@ -82,9 +98,11 @@ def run_pipeline(direction: str, *, platform: str = "不限", budget: str = "不
             save_fulltext(conn, ft, xml_path)
             conn.commit()
             fetched += 1
+            _n(note, f"✓ {pmcid} 全文 {len(ft.text)} 字、图表 {len(ft.figures)} 个")
         except Exception as exc:  # noqa: BLE001
             save_fulltext(conn, FullText(pmcid=pmcid, status="error"), None, error=str(exc))
             conn.commit()
+            _n(note, f"× {pmcid} 抓全文失败：{str(exc)[:80]}")
         time.sleep(1.0)
     _step(progress, "抓全文", f"成功 {fetched}/{len(targets)} 篇", 40)
 
@@ -98,6 +116,7 @@ def run_pipeline(direction: str, *, platform: str = "不限", budget: str = "不
             continue
         _step(progress, "抽卡片", f"{pmcid}（{index}/{len(todo)}）", 40 + int(30 * index / max(1, len(todo))))
         figs = [f.__dict__ for f in figures_for(conn, pmcid)]
+        _n(note, f"抽卡片 {pmcid}（{index}/{len(todo)}）：{info['title'][:48]}｜全文 {len(info['text'])} 字")
         try:
             card = make_card(info["title"], info["journal"], info["year"], figs,
                              info["text"], model_name=model_name)
@@ -107,23 +126,28 @@ def run_pipeline(direction: str, *, platform: str = "不限", budget: str = "不
             conn.commit()
             tokens += card.usage.total_tokens
             new_cards += 1
+            _n(note, f"✓ {pmcid} 卡片完成（累计 {new_cards} 张，{tokens} tokens）")
         except Exception as exc:  # noqa: BLE001
             save_card(conn, pmcid, {"error": str(exc)}, model_name, status="error", error=str(exc))
             conn.commit()
+            _n(note, f"× {pmcid} 卡片失败：{str(exc)[:80]}")
     _step(progress, "抽卡片", f"新增 {new_cards} 张卡片", 70)
 
     all_cards = get_cards(conn)
     _step(progress, "跨文献聚合", f"正在归纳 {len(all_cards)} 张卡片", 78)
+    _n(note, f"聚合：把 {len(all_cards)} 张卡片放在一起比共识/争议/空白")
     constraints = (f"平台约束：{platform}；预算量级：{budget}；可投入周期：{period}；"
                    f"湿实验：{wet_lab}")
     summary, usage = summarize(f"{direction}\n{constraints}", all_cards, model_name=model_name)
     tokens += usage.total_tokens
+    _n(note, f"✓ 聚合完成（{usage.total_tokens} tokens）")
 
     figs_map = {}
     for card in all_cards:
         figs_map[card["pmcid"]] = [f.__dict__ for f in figures_for(conn, card["pmcid"])]
 
     _step(progress, "生成简报", "正在写六件套 Markdown", 92)
+    _n(note, "写简报：组装六个页签并落盘 report.md / papers.csv / summary.json")
     report_path = write_markdown(run_dir / "report.md", direction, all_cards, all_cards,
                                  summary, figs_map)
     to_csv(conn, run_dir / "papers.csv")
