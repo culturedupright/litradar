@@ -50,6 +50,24 @@ CREATE TABLE IF NOT EXISTS figures (
   PRIMARY KEY (pmcid, fig_id)
 );
 CREATE INDEX IF NOT EXISTS idx_figures_pmcid ON figures(pmcid);
+CREATE TABLE IF NOT EXISTS cards (
+  pmcid TEXT PRIMARY KEY,
+  data TEXT,
+  model TEXT,
+  tokens_in INTEGER,
+  tokens_out INTEGER,
+  status TEXT,
+  error TEXT,
+  created_at TEXT
+);
+CREATE TABLE IF NOT EXISTS reports (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  direction TEXT,
+  data TEXT,
+  model TEXT,
+  tokens INTEGER,
+  created_at TEXT
+);
 """
 
 
@@ -165,3 +183,50 @@ def get_fulltext(conn: sqlite3.Connection, pmcid: str) -> dict | None:
     keys = ("pmcid", "title", "journal", "year", "text", "char_count",
             "xml_path", "status", "error")
     return dict(zip(keys, row))
+
+
+def save_card(conn: sqlite3.Connection, pmcid: str, data: dict, model: str,
+              tokens_in: int = 0, tokens_out: int = 0,
+              status: str = "ok", error: str = "") -> None:
+    conn.execute(
+        """INSERT OR REPLACE INTO cards
+           (pmcid, data, model, tokens_in, tokens_out, status, error, created_at)
+           VALUES (?,?,?,?,?,?,?,?)""",
+        (pmcid, json.dumps(data, ensure_ascii=False), model, tokens_in,
+         tokens_out, status, error, datetime.now(timezone.utc).isoformat(timespec="seconds")),
+    )
+
+
+def get_cards(conn: sqlite3.Connection, limit: int | None = None) -> list[dict]:
+    sql = "SELECT pmcid, data FROM cards WHERE status='ok' ORDER BY created_at DESC"
+    if limit:
+        sql += f" LIMIT {int(limit)}"
+    rows = conn.execute(sql).fetchall()
+    result = []
+    for pmcid, payload in rows:
+        item = json.loads(payload)
+        item["pmcid"] = pmcid
+        result.append(item)
+    return result
+
+
+def pending_cards(conn: sqlite3.Connection, limit: int = 20) -> list[str]:
+    rows = conn.execute(
+        """SELECT f.pmcid FROM fulltext f
+           LEFT JOIN cards c ON c.pmcid = f.pmcid
+           WHERE f.status='ok' AND (c.pmcid IS NULL OR c.status <> 'ok')
+           ORDER BY f.pmcid LIMIT ?""",
+        (int(limit),),
+    ).fetchall()
+    return [row[0] for row in rows]
+
+
+def save_report(conn: sqlite3.Connection, direction: str, data: dict,
+                model: str, tokens: int) -> int:
+    cursor = conn.execute(
+        """INSERT INTO reports (direction, data, model, tokens, created_at)
+           VALUES (?,?,?,?,?)""",
+        (direction, json.dumps(data, ensure_ascii=False), model, tokens,
+         datetime.now(timezone.utc).isoformat(timespec="seconds")),
+    )
+    return int(cursor.lastrowid)

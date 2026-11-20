@@ -8,9 +8,11 @@ from pathlib import Path
 from .config import DB_PATH, FULLTEXT_DIR, REQUEST_INTERVAL, ensure_dirs
 from .europepmc import build_query, iter_papers
 from .fulltext import FullText, fetch_fulltext
+from .pipeline import run_pipeline
 from .store import (all_papers, connect, count, figures_for, fulltext_stats,
                     get_fulltext, pending_fulltexts, save_fulltext, to_csv,
                     upsert)
+from .web import serve
 
 
 def cmd_search(args: argparse.Namespace) -> int:
@@ -110,6 +112,34 @@ def cmd_list_figures(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_run(args: argparse.Namespace) -> int:
+    def progress(step: str, detail: str, percent: int) -> None:
+        print(f"[{percent:3d}%] {step} | {detail[:90]}")
+
+    result = run_pipeline(
+        args.direction,
+        platform=args.platform,
+        budget=args.budget,
+        period=args.period,
+        wet_lab=args.wet_lab,
+        years=args.years,
+        search_limit=args.search_limit,
+        fetch_limit=args.fetch_limit,
+        card_limit=args.card_limit,
+        model_name=args.model,
+        db_path=args.db,
+        progress=progress,
+    )
+    print(f"\n简报：{result['report']}")
+    print(f"卡片 {result['cards']} 张 / 全文 {result['fetched']} 篇 / tokens {result['tokens']}")
+    return 0
+
+
+def cmd_serve(args: argparse.Namespace) -> int:
+    serve(args.host, args.port)
+    return 0
+
+
 def cmd_export(args: argparse.Namespace) -> int:
     conn = connect(args.db)
     n = to_csv(conn, Path(args.out))
@@ -169,6 +199,26 @@ def build_parser() -> argparse.ArgumentParser:
     p_figs.add_argument("--limit", type=int, default=5, help="最多看几篇")
     p_figs.set_defaults(func=cmd_list_figures)
     _add_db(p_figs)
+
+    p_run = sub.add_parser("run", help="一个方向跑完整流水线")
+    p_run.add_argument("--direction", required=True, help="研究方向，一句话")
+    p_run.add_argument("--platform", default="不限")
+    p_run.add_argument("--budget", default="不限")
+    p_run.add_argument("--period", default="不限")
+    p_run.add_argument("--wet-lab", default="接受", choices=["接受", "只做干实验"])
+    p_run.add_argument("--years", default="")
+    p_run.add_argument("--search-limit", type=int, default=40)
+    p_run.add_argument("--fetch-limit", type=int, default=8)
+    p_run.add_argument("--card-limit", type=int, default=8)
+    p_run.add_argument("--model", default="deepseek")
+    p_run.set_defaults(func=cmd_run)
+    _add_db(p_run)
+
+    p_serve = sub.add_parser("serve", help="打开本地界面")
+    p_serve.add_argument("--host", default="127.0.0.1")
+    p_serve.add_argument("--port", type=int, default=8899)
+    p_serve.set_defaults(func=cmd_serve)
+    _add_db(p_serve)
     return parser
 
 

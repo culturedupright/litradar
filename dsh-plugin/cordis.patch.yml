@@ -1,0 +1,4 @@
+# 题眼 LitRadar 的挂载层：把插件本体插进 Loader 树。
+- insert:
+    - id: litradar
+      name: 'litradar-dsh-plugin'
