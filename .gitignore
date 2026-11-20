@@ -1,6 +1,8 @@
 # 数据与本地运行产物
 data/
 runs/
+workspace/
+.pytest_cache/
 *.db
 *.sqlite3
 .env
