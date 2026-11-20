@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .config import DB_PATH
+from .fulltext import Figure, FullText
 from .models import Paper
 
 SCHEMA = """
@@ -25,6 +27,29 @@ CREATE TABLE IF NOT EXISTS papers (
 );
 CREATE INDEX IF NOT EXISTS idx_papers_year ON papers(year);
 CREATE INDEX IF NOT EXISTS idx_papers_doi ON papers(doi);
+CREATE TABLE IF NOT EXISTS fulltext (
+  pmcid TEXT PRIMARY KEY,
+  title TEXT,
+  journal TEXT,
+  year INTEGER,
+  text TEXT,
+  char_count INTEGER,
+  xml_path TEXT,
+  status TEXT,
+  error TEXT,
+  fetched_at TEXT
+);
+CREATE TABLE IF NOT EXISTS figures (
+  pmcid TEXT,
+  fig_id TEXT,
+  kind TEXT,
+  label TEXT,
+  caption TEXT,
+  image_url TEXT,
+  cited_sentences TEXT,
+  PRIMARY KEY (pmcid, fig_id)
+);
+CREATE INDEX IF NOT EXISTS idx_figures_pmcid ON figures(pmcid);
 """
 
 
@@ -74,3 +99,69 @@ def to_csv(conn: sqlite3.Connection, out: Path) -> int:
             cells = ["" if v is None else str(v) for v in r]
             fh.write(",".join('"' + c.replace('"', '""') + '"' for c in cells) + "\n")
     return len(rows)
+
+
+def pending_fulltexts(conn: sqlite3.Connection, limit: int = 20) -> list[tuple[str, str]]:
+    """挑出还没成功抓过全文的 OA 文献，按引用数降序。"""
+    sql = """
+        SELECT p.pmcid, p.title
+        FROM papers p
+        LEFT JOIN fulltext f ON f.pmcid = p.pmcid
+        WHERE p.pmcid IS NOT NULL AND p.pmcid <> ''
+          AND p.is_oa = 1
+          AND (f.pmcid IS NULL OR f.status <> 'ok')
+        ORDER BY p.cited_by DESC
+        LIMIT ?
+    """
+    return [(row[0], row[1] or "") for row in conn.execute(sql, (int(limit),)).fetchall()]
+
+
+def save_fulltext(conn: sqlite3.Connection, ft: FullText,
+                  xml_path: Path | str | None = None, error: str = "") -> None:
+    conn.execute(
+        """INSERT OR REPLACE INTO fulltext
+           (pmcid, title, journal, year, text, char_count, xml_path, status, error, fetched_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?)""",
+        (
+            ft.pmcid, ft.title, ft.journal, ft.year, ft.text, len(ft.text),
+            str(xml_path) if xml_path else "", ft.status, error,
+            datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        ),
+    )
+    conn.execute("DELETE FROM figures WHERE pmcid=?", (ft.pmcid,))
+    for fig in ft.figures:
+        conn.execute(
+            """INSERT OR REPLACE INTO figures
+               (pmcid, fig_id, kind, label, caption, image_url, cited_sentences)
+               VALUES (?,?,?,?,?,?,?)""",
+            (ft.pmcid, fig.fig_id, fig.kind, fig.label, fig.caption,
+             fig.image_url, fig.cited_sentences),
+        )
+
+
+def fulltext_stats(conn: sqlite3.Connection) -> tuple[int, int]:
+    full = int(conn.execute("SELECT COUNT(*) FROM fulltext WHERE status='ok'").fetchone()[0])
+    figs = int(conn.execute("SELECT COUNT(*) FROM figures").fetchone()[0])
+    return full, figs
+
+
+def figures_for(conn: sqlite3.Connection, pmcid: str) -> list[Figure]:
+    rows = conn.execute(
+        """SELECT pmcid, fig_id, kind, label, caption, image_url, cited_sentences
+           FROM figures WHERE pmcid=? ORDER BY kind, fig_id""",
+        (pmcid,),
+    ).fetchall()
+    return [Figure(*row) for row in rows]
+
+
+def get_fulltext(conn: sqlite3.Connection, pmcid: str) -> dict | None:
+    row = conn.execute(
+        """SELECT pmcid, title, journal, year, text, char_count, xml_path, status, error
+           FROM fulltext WHERE pmcid=?""",
+        (pmcid,),
+    ).fetchone()
+    if not row:
+        return None
+    keys = ("pmcid", "title", "journal", "year", "text", "char_count",
+            "xml_path", "status", "error")
+    return dict(zip(keys, row))
