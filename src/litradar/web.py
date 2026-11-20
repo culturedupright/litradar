@@ -75,7 +75,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
 <div class="grid">
   <div class="field full">
     <label>研究方向（必填，一句话）</label>
-    <textarea id="direction" placeholder="例：香豆素如何塑造植物根际微生物组并影响氮循环"></textarea>
+    <textarea id="direction" placeholder="例：根系分泌物如何塑造根际微生物组的组成与功能"></textarea>
   </div>
   <div class="field"><label>实验平台</label><select id="platform">
     <option>不限</option><option>盆栽</option><option>温室</option><option>田间</option><option>小鼠</option><option>体外</option><option>纯干分析</option></select></div>
