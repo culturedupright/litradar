@@ -4,7 +4,7 @@
 
 输入一句话方向（可选平台、预算、周期），输出六件东西：领域全景、证据矩阵、单篇卡片、图表复刻清单、方向候选、开题卡。
 
-**当前状态：`v0.1.0`，只有检索层可跑。** 卡片抽取、聚合、界面、DSH 插件都在路线图里，不假装已完成。
+**当前状态：`v0.2.0`，检索层与 OA 全文/图注抓取可跑。** 卡片抽取、聚合、界面、DSH 插件都在路线图里，不假装已完成。
 
 ## 它解决什么
 
@@ -41,9 +41,23 @@ litradar search \
 # 看库内统计、导出
 litradar stats
 litradar export --out papers.csv
+
+# 抓 OA 全文、图注与原图直链（默认抓 20 篇，可断点续跑）
+litradar fetch --limit 20
+
+# 只看某一篇抓到的图/表
+litradar list-figures --pmcid PMC13529732
 ```
 
-默认库在 `~/.litradar/data/litradar.db`，可用 `LITRADAR_HOME` 或 `--db` 改。
+默认库在 `~/.litradar/data/litradar.db`，可用 `LITRADAR_HOME` 或 `--db` 改；全文 XML 存在 `$LITRADAR_HOME/fulltext/`。
+
+Windows 下可直接用仓库根目录的 `litradar.cmd`（走系统 Python，不需要虚拟环境）：
+
+```powershell
+.\litradar.cmd fetch --limit 20
+```
+
+程序会自动读取系统代理（Clash 等），不需要额外设 `HTTPS_PROXY`。
 
 ## 数据与边界
 
@@ -58,7 +72,7 @@ litradar export --out papers.csv
 | 版本 | 内容 | 状态 |
 | --- | --- | --- |
 | v0.1.0 | Europe PMC 检索、PICO 检索式、SQLite、CSV 导出、测试与 CI | ✅ |
-| v0.2.0 | OA 全文与图注抓取（JATS XML + `cloudpmc-path` CDN） | 计划中 |
+| v0.2.0 | OA 全文与图注抓取（JATS XML + `cloudpmc-urn` CDN）、引用句配对 | ✅ |
 | v0.3.0 | 结构化卡片抽取（9 字段 + 证据定位） | 计划中 |
 | v0.4.0 | 领域聚合 + 方向候选 + 开题卡 | 计划中 |
 | v0.5.0 | 本地 Web 界面 + 导出 Markdown/Excel/PDF | 计划中 |

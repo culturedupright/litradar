@@ -6,11 +6,25 @@
 ## [Unreleased]
 
 ### Planned
-- OA 全文抓取与图注解析
 - 卡片抽取与证据定位
 - 领域聚合与方向候选
 - 本地 Web 界面
 - DSH 插件
+
+## [0.2.0] - 2026-11-20
+
+### Added
+- `litradar fetch`：抓取 Europe PMC 开放获取文献的全文 XML，落盘并写入 `fulltext` 表
+- JATS 解析：正文、图/表条目、图注、PMC CDN 原图直链
+- 正文引用句配对：支持 `Fig. 1`、`Figs. 2, 3 and 4`、`Figs. 1–3` 与 `Table 1`
+- `litradar list-figures`：查看图号、图注、原图链接与引用句
+- 限速、失败重试、断点续跑；单篇失败不影响整批
+- Windows 系统代理自动探测（Clash 等），命令行无需再设环境变量
+- 新增 `litradar.cmd` 本地启动器，系统 Python 直接跑，不依赖虚拟环境
+
+### Changed
+- `stats` 增加“已抓全文”“图表条目”两项
+- `--db` 现在既可写在子命令前，也可写在子命令后
 
 ## [0.1.0] - 2026-11-20
 
