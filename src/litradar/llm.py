@@ -162,4 +162,8 @@ def extract_json(text: str) -> dict:
     start, end = text.find("{"), text.rfind("}")
     if start == -1 or end == -1:
         raise ValueError("模型回复里没有 JSON")
-    return json.loads(text[start:end + 1])
+    try:
+        return json.loads(text[start:end + 1])
+    except json.JSONDecodeError:
+        # 模型常把换行直接写进字符串；strict=False 允许未转义控制字符
+        return json.loads(text[start:end + 1], strict=False)

@@ -3,6 +3,25 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.7.0] - 2026-11-22
+
+### Added
+- 多检索源：Europe PMC / PubMed / OpenAlex / Web of Science / Scopus，界面自由勾选，逐源体检
+- 凭据管理：WOS / Scopus API Key 存本机 `credentials.json`，支持有效期，过期自动停用并提示重配
+- OECD 学科分类（Frascati 2007，六大类 42 子类）接入界面，用于定闸门口径与卡片语义
+- 课题组五维自评（PI / 平台 / 积累 / 梯队 / 经费），带权重、锚点、短板结论，写进开题报告
+- 开题报告交付：九节骨架 + 三份附录，Markdown 与 Word 双格式（Word 依赖 python-docx，缺失时自动跳过）
+- 界面新增检索源状态、凭据表单、课题组滑杆、开题报告页签与下载
+
+### Changed
+- 检索式规划同时产出 `keywords`，供不支持布尔语法的库使用
+- 检索源单点失败不再中断整轮；全部失败才报错并列出每家原因
+- 汇总报告与 summary.json 记录逐源数量与 OECD 口径
+
+### Fixed
+- 模型返回 JSON 字符串里带裸换行时解析失败（`strict=False` 兜底）
+- 材料方向把“biological neural networks / in vivo”类文献误放行
+
 ## [0.6.0] - 2026-11-22
 
 ### Added

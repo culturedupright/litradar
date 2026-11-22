@@ -6,16 +6,17 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
+from . import oecd, proposal, team
 from .aggregate import summarize
 from .cards import make_card
 from .config import DB_PATH, FULLTEXT_DIR, RUNS_DIR, ensure_dirs
 from .domain import Domain, by_key, classify
-from .europepmc import iter_papers
 from .fulltext import FullText, fetch_fulltext
 from .llm import chat, extract_json
 from .relevance import audit as audit_retrieval
 from .relevance import judge, relax_query, topic_terms
 from .report import write_markdown
+from .sources import search_all
 from .store import (connect, figures_for, get_cards, get_fulltext,
                     pending_cards, pending_fulltexts, save_card,
                     save_fulltext, save_report, set_gate, to_csv, upsert)
@@ -40,7 +41,9 @@ def plan_prompt(domain: Domain) -> str:
 "neural network" 不要扩展成神经科学词汇，也不要引入 plant、mouse、patient 这类实验词）。
 同时按 {domain.framework} 把方向拆成四格，键名固定为 population / intervention /
 comparison / outcome，中文含义按该范式解释：{domain.framework_hint}没有的留空。
-只输出 JSON：{{"query": "...", "framework_name": "{domain.framework}",
+另外给一个 keywords 数组：6–12 个英文核心词（含同义词），供 PubMed / Web of Science /
+Scopus / OpenAlex 这些不支持同一套布尔语法的库使用。
+只输出 JSON：{{"query": "...", "keywords": ["..."], "framework_name": "{domain.framework}",
 "pico": {{"population": "", "intervention": "", "comparison": "", "outcome": ""}}}}"""
 
 
@@ -50,7 +53,7 @@ def _step(cb: Progress, name: str, detail: str, percent: int) -> None:
 
 
 def plan_query(direction: str, model_name: str,
-               domain: Domain | None = None) -> tuple[str, dict, int, str]:
+               domain: Domain | None = None) -> tuple[str, dict, int, str, list[str]]:
     domain = domain or classify(direction)
     reply, usage = chat(
         [{"role": "system", "content": "你是文献检索专家，只输出 JSON。"},
@@ -63,7 +66,8 @@ def plan_query(direction: str, model_name: str,
     if not query:
         query = direction
     framework = str(data.get("framework_name") or domain.framework)
-    return query, data.get("pico") or {}, usage.total_tokens, framework
+    keywords = [str(k).strip() for k in (data.get("keywords") or []) if str(k).strip()]
+    return query, data.get("pico") or {}, usage.total_tokens, framework, keywords
 
 
 def run_pipeline(direction: str, *, platform: str = "不限", budget: str = "不限",
@@ -73,6 +77,10 @@ def run_pipeline(direction: str, *, platform: str = "不限", budget: str = "不
                  model_name: str = "deepseek",
                  db_path: Path | str = DB_PATH,
                  domain_key: str = "auto",
+                 sources_list: list[str] | None = None,
+                 oecd_code: str = "",
+                 team_profile: dict | None = None,
+                 owner: str = "",
                  progress: Progress | None = None,
                  note: Note | None = None) -> dict:
     ensure_dirs()
@@ -81,24 +89,39 @@ def run_pipeline(direction: str, *, platform: str = "不限", budget: str = "不
     run_dir = Path(RUNS_DIR) / started
     run_dir.mkdir(parents=True, exist_ok=True)
     tokens = 0
+    source_stats: list[dict] = []
 
-    domain = by_key(domain_key) if domain_key and domain_key != "auto" else classify(direction)
+    if domain_key and domain_key != "auto":
+        domain = by_key(domain_key)
+    else:
+        domain = classify(direction)
+        hint = oecd.domain_hint(oecd_code) if oecd_code else "general"
+        if domain.key == "general" and hint != "general":
+            domain = by_key(hint)
     _step(progress, "判定学科", f"{domain.label}；归纳口径 {domain.framework}", 2)
-    _n(note, f"学科判定：{domain.label}（闸门 {'开' if domain.gate else '关'}）")
+    _n(note, f"学科判定：{domain.label}（闸门 {'开' if domain.gate else '关'}）"
+             + (f"；OECD 分类：{oecd.label(oecd_code)}" if oecd_code else ""))
 
     _step(progress, "规划检索式", "正在把研究方向翻成英文检索式", 4)
     _n(note, f"方向：{direction[:60]}；模型：{model_name}")
-    query, pico, used, framework = plan_query(direction, model_name, domain)
+    query, pico, used, framework, keywords = plan_query(direction, model_name, domain)
     tokens += used
     _step(progress, "规划检索式", f"检索式：{query[:120]}", 8)
     _n(note, f"检索式定稿：{query[:160]}")
+    if keywords:
+        _n(note, "核心词：" + "、".join(keywords[:10]))
 
     added, dropped = 0, 0
     decisions: list[dict] = []
     used_query = query
     papers = []
     for _attempt in range(3):
-        papers = list(iter_papers(used_query, limit=search_limit))
+        papers, source_stats = search_all(used_query, keywords, years, search_limit,
+                                          sources_list or ["europepmc"],
+                                          oecd_code=oecd_code)
+        _n(note, "检索源：" + "；".join(
+            f"{s['label']} {s['count']} 篇" + ("" if s["ok"] else f"（失败：{s['error']}）")
+            for s in source_stats))
         if papers:
             break
         relaxed = relax_query(used_query)
@@ -129,6 +152,8 @@ def run_pipeline(direction: str, *, platform: str = "不限", budget: str = "不
     run_ids = {d["pmcid"] for d in decisions if d["keep"] and d["pmcid"].startswith("PMC")}
 
     audit = audit_retrieval(domain, terms, decisions)
+    audit["sources"] = source_stats
+    audit["oecd"] = oecd.label(oecd_code) if oecd_code else ""
     kept = audit["kept"]
     _step(progress, "相关性闸门",
           f"候选 {added} 篇，同域 {kept} 篇，挡掉 {dropped} 篇", 20)
@@ -140,19 +165,28 @@ def run_pipeline(direction: str, *, platform: str = "不限", budget: str = "不
                  "figure_patterns": [], "directions": []}
         report_path = write_markdown(run_dir / "report.md", direction, [], [],
                                      empty, {}, audit=audit, domain=domain)
+        proposal_path = proposal.write_markdown(
+            run_dir / "开题报告.md", direction, empty, [], audit,
+            field_code=oecd_code, platform=platform, budget=budget, period=period,
+            wet_lab=wet_lab, team_profile=team_profile, owner=owner, stats=source_stats)
+        docx_path = proposal.write_docx(proposal_path, run_dir / "开题报告.docx", direction)
         to_csv(conn, run_dir / "papers.csv", {d["id"] for d in decisions})
         (run_dir / "summary.json").write_text(
             json.dumps({"direction": direction, "query": query, "pico": pico,
                         "framework": framework, "domain": domain.key,
-                        "audit": audit, "tokens": tokens, "summary": empty},
+                        "audit": audit, "tokens": tokens, "summary": empty,
+                        "sources": source_stats, "oecd": oecd.label(oecd_code)},
                        ensure_ascii=False, indent=2), encoding="utf-8")
         save_report(conn, direction, empty, model_name, tokens)
         conn.commit()
         _step(progress, "完成", f"没有同域文献，已写体检报告：{report_path}", 100)
         return {"run_dir": str(run_dir), "report": str(report_path), "query": query,
+                "proposal": str(proposal_path),
+                "proposal_docx": str(docx_path) if docx_path else "",
                 "found": added, "kept": 0, "dropped": dropped, "fetched": 0,
                 "cards": 0, "summary": empty, "cards_data": [], "figures": {},
-                "tokens": tokens, "domain": domain.key, "audit": audit}
+                "tokens": tokens, "domain": domain.key, "audit": audit,
+                "sources": source_stats}
 
     targets = pending_fulltexts(conn, fetch_limit, run_ids)
     fetched = 0
@@ -227,6 +261,12 @@ def run_pipeline(direction: str, *, platform: str = "不限", budget: str = "不
     _n(note, "写简报：组装页签并落盘 report.md / papers.csv / summary.json")
     report_path = write_markdown(run_dir / "report.md", direction, all_cards, all_cards,
                                  summary, figs_map, audit=audit, domain=domain)
+    _step(progress, "生成开题报告", "按通行九节骨架排版，附表进附录", 96)
+    proposal_path = proposal.write_markdown(
+        run_dir / "开题报告.md", direction, summary, all_cards, audit,
+        field_code=oecd_code, platform=platform, budget=budget, period=period,
+        wet_lab=wet_lab, team_profile=team_profile, owner=owner, stats=source_stats)
+    docx_path = proposal.write_docx(proposal_path, run_dir / "开题报告.docx", direction)
     to_csv(conn, run_dir / "papers.csv", {d["id"] for d in decisions})
     (run_dir / "summary.json").write_text(
         json.dumps({"direction": direction, "platform": platform, "budget": budget,
@@ -234,7 +274,9 @@ def run_pipeline(direction: str, *, platform: str = "不限", budget: str = "不
                     "pico": pico, "framework": framework, "domain": domain.key,
                     "audit": audit, "search_limit": search_limit,
                     "fetch_limit": fetch_limit, "card_limit": card_limit,
-                    "tokens": tokens, "summary": summary}, ensure_ascii=False, indent=2),
+                    "tokens": tokens, "summary": summary,
+                    "sources": source_stats, "oecd": oecd.label(oecd_code)},
+                   ensure_ascii=False, indent=2),
         encoding="utf-8")
     save_report(conn, direction, summary, model_name, tokens)
     conn.commit()
@@ -243,6 +285,8 @@ def run_pipeline(direction: str, *, platform: str = "不限", budget: str = "不
     return {
         "run_dir": str(run_dir),
         "report": str(report_path),
+        "proposal": str(proposal_path),
+        "proposal_docx": str(docx_path) if docx_path else "",
         "query": query,
         "found": added,
         "kept": kept,
@@ -255,5 +299,6 @@ def run_pipeline(direction: str, *, platform: str = "不限", budget: str = "不
         "tokens": tokens,
         "domain": domain.key,
         "audit": audit,
+        "sources": source_stats,
     }
 

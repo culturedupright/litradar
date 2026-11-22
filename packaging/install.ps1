@@ -29,6 +29,12 @@ if (-not $Python) {
   }
 }
 
+& $Python -c "import docx" 2>$null
+if ($LASTEXITCODE -ne 0) {
+  Write-Host "提示：未装 python-docx，Word 版开题报告会跳过。要 Word 版请执行："
+  Write-Host "  `"$Python`" -m pip install python-docx"
+}
+
 Write-Host "2/4 写入引擎配置 ~/.litradar-suite/config.json"
 $SuiteDir = Join-Path $env:USERPROFILE ".litradar-suite"
 New-Item -ItemType Directory -Force -Path $SuiteDir | Out-Null

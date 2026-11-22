@@ -9,10 +9,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+from . import credentials, oecd, team
 from .config import DB_PATH
 from .llm import resolve_model, set_activity
 from .model_catalog import list_models
 from .pipeline import run_pipeline
+from .sources import search_all
 
 TASKS: dict[str, dict] = {}
 LOCK = threading.Lock()
@@ -68,6 +70,23 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .md th,.md td{border:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}
 .md th{background:#f0f2f5}
 .err{color:var(--warn);white-space:pre-wrap}
+.sect{font-size:15px;margin:0 0 8px;padding-left:9px;border-left:3px solid var(--accent)}
+.src{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px dashed var(--line);flex-wrap:wrap}
+.src input[type=checkbox]{width:16px;height:16px}
+.src .name{min-width:150px;font-weight:600}
+.badge{font-size:12px;padding:1px 8px;border-radius:10px;border:1px solid var(--line);color:var(--sub)}
+.badge.ok{color:var(--accent);border-color:var(--accent)}
+.badge.bad{color:var(--warn);border-color:var(--warn)}
+.mini{padding:5px 12px;font-size:12px;background:#eef1f4;color:var(--ink)}
+.ghost{background:#fff;color:var(--sub);border:1px solid var(--line)}
+.cred{margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+.credhead{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.dim{border:1px solid var(--line);border-radius:6px;padding:10px 12px;margin-bottom:9px;background:#fbfbfc}
+.dim .top{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.dim .top b{font-size:13px}
+.dim .top span{font-size:12px;color:var(--sub)}
+.dim input[type=range]{width:100%}
+.dim textarea{min-height:36px;margin-top:4px}
 .foot{margin-top:34px;color:var(--sub);font-size:12px}
 </style>
 </head>
@@ -85,6 +104,8 @@ button:disabled{opacity:.45;cursor:not-allowed}
     <option value="auto">自动判定</option><option value="materials">材料与器件</option>
     <option value="agri">植物—微生物/农学</option><option value="biomed">生物医学</option>
     <option value="general">通用</option></select></div>
+  <div class="field"><label>OECD 大类</label><select id="oecd_major"><option value="">不指定</option></select></div>
+  <div class="field"><label>OECD 子类</label><select id="oecd_sub"><option value="">不指定</option></select></div>
   <div class="field"><label>实验类型</label><select id="platform">
     <option>不限</option><option>湿实验</option><option>干实验</option><option>湿+干</option><option>仿真与理论</option></select></div>
   <div class="field"><label>预算量级</label><select id="budget">
@@ -102,9 +123,28 @@ button:disabled{opacity:.45;cursor:not-allowed}
   <div class="field"><label>检索上限（篇）</label><input id="search" type="number" value="40" min="5" max="200"></div>
   <div class="field"><label>精读上限（篇）</label><input id="fetch" type="number" value="8" min="1" max="30"></div>
   <div class="field"><label>卡片上限（篇）</label><input id="cards" type="number" value="8" min="1" max="30"></div>
-  <div class="field full"><label>模型（读取自 DSH）</label><select id="model"><option value="">正在读取 DSH 模型…</option></select></div>
+  <div class="field span2"><label>申请人（写在开题报告封面）</label><input id="owner" placeholder="姓名，可留空"></div>
+  <div class="field"><label>模型（读取自 DSH）</label><select id="model"><option value="">正在读取 DSH 模型…</option></select></div>
 </div>
 <div class="actions"><button id="run">开始分析</button><span class="hint">全程自动跑：检索 → 抓全文 → 抽卡片 → 聚合 → 出简报</span></div>
+</div>
+
+<div class="panel">
+<h2 class="sect">检索源与账号</h2>
+<p class="hint">WOS / Scopus 走机构订阅的 API Key，插件不保存账号密码；Key 存在本机用户目录，过期自动停用。</p>
+<div id="sources"></div>
+<div id="credform" class="cred" style="display:none">
+  <div class="credhead"><b id="credtitle"></b><button class="mini" id="credclose">收起</button></div>
+  <div id="credfields" class="grid"></div>
+  <div class="actions"><button id="credsave">保存到本机</button><button class="ghost" id="credtest">测试连接</button><button class="ghost" id="credclear">清除</button><span class="hint" id="credmsg"></span></div>
+</div>
+</div>
+
+<div class="panel">
+<h2 class="sect">课题组条件（按基金评审常用五维自评）</h2>
+<p class="hint">1–5 级，插件只用它判断“这个选题接不接得住”，写进开题报告第六节；不编单位数据。</p>
+<div id="teamdims"></div>
+<div class="actions"><span class="hint" id="teamscore"></span><button class="mini" id="teamsave">保存并用于本次</button></div>
 </div>
 
 <div class="panel" id="progress" style="display:none">
@@ -117,7 +157,10 @@ button:disabled{opacity:.45;cursor:not-allowed}
 </div>
 
 <div class="panel" id="result" style="display:none">
-  <div class="step"><span id="meta"></span><a id="download" href="#" style="color:var(--accent)">下载 Markdown</a></div>
+  <div class="step"><span id="meta"></span>
+    <span><a id="dlreport" href="#" style="color:var(--accent)">证据简报.md</a>
+    <a id="dlproposal" href="#" style="color:var(--accent);margin-left:12px">开题报告.md</a>
+    <a id="dldocx" href="#" style="color:var(--accent);margin-left:12px">开题报告.docx</a></span></div>
   <div class="tabs" id="tabs"></div>
   <div class="md" id="md"></div>
 </div>
@@ -128,6 +171,112 @@ button:disabled{opacity:.45;cursor:not-allowed}
 <script>
 let taskId=null,timer=null;
 const $=id=>document.getElementById(id);
+let CRED=null, DIMS=[];
+function loadSettings(){
+  fetch("/api/settings").then(r=>r.json()).then(d=>{
+    buildOecd(d.oecd||[]);
+    renderSources(d.sources||[]);
+    DIMS=d.team.dimensions||[];renderTeam(d.team.profile||{});
+  }).catch(e=>{$("sources").textContent="读取配置失败："+e;});
+}
+function buildOecd(rows){
+  const major=$("oecd_major");major.innerHTML='<option value="">不指定</option>';
+  rows.forEach(m=>{const o=document.createElement("option");o.value=m.code;o.textContent=m.label;major.appendChild(o);});
+  major.onchange=()=>{
+    const sub=$("oecd_sub");sub.innerHTML='<option value="">不指定</option>';
+    const row=rows.find(m=>m.code===major.value);
+    (row?row.children:[]).forEach(c=>{const o=document.createElement("option");o.value=c.code;o.textContent=c.label;sub.appendChild(o);});
+  };
+}
+function renderSources(list){
+  const box=$("sources");box.innerHTML="";
+  list.forEach(s=>{
+    const row=document.createElement("div");row.className="src";
+    const cb=document.createElement("input");cb.type="checkbox";cb.id="src_"+s.source;
+    cb.checked=(s.source==="europepmc"||s.source==="pubmed"||s.source==="openalex");
+    const name=document.createElement("span");name.className="name";name.textContent=s.label;
+    const badge=document.createElement("span");badge.className="badge";
+    if(s.free){badge.textContent="免登录";badge.classList.add("ok");}
+    else if(s.expired){badge.textContent="已过期，需重新配置";badge.classList.add("bad");}
+    else if(s.configured){badge.textContent="已连接";badge.classList.add("ok");}
+    else {badge.textContent="未配置";badge.classList.add("bad");}
+    const help=document.createElement("span");help.className="hint";help.textContent=s.help;
+    const btn=document.createElement("button");btn.className="mini";btn.textContent=s.free?"说明":"配置";
+    btn.onclick=()=>openCred(s);
+    row.append(cb,name,badge,help,btn);box.appendChild(row);
+  });
+}
+function openCred(s){
+  CRED=s;const form=$("credform");form.style.display="block";
+  $("credtitle").textContent=s.label+" · 凭据";
+  $("credmsg").textContent="";
+  const fields=$("credfields");fields.innerHTML="";
+  (s.fields||[]).forEach(f=>{
+    const wrap=document.createElement("div");wrap.className="field";
+    const lab=document.createElement("label");lab.textContent=f.label;
+    const input=document.createElement("input");input.id="cred_"+f.key;
+    input.type=(f.key==="api_key")?"password":"text";
+    input.placeholder=(f.key==="expires")?"YYYY-MM-DD":"";
+    wrap.append(lab,input);fields.appendChild(wrap);
+  });
+  form.scrollIntoView({behavior:"smooth",block:"center"});
+}
+$("credclose").onclick=()=>{$("credform").style.display="none";};
+$("credsave").onclick=()=>{
+  if(!CRED)return;
+  const values={};(CRED.fields||[]).forEach(f=>{const el=$("cred_"+f.key);if(el)values[f.key]=el.value;});
+  fetch("/api/credentials",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({source:CRED.source,values})}).then(r=>r.json()).then(d=>{
+      if(d.error){$("credmsg").textContent=d.error;return;}
+      $("credmsg").textContent="已保存到本机（不回显明文）";
+      loadSettings();
+    }).catch(e=>{$("credmsg").textContent=String(e);});
+};
+$("credclear").onclick=()=>{
+  if(!CRED)return;
+  fetch("/api/credentials/clear",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({source:CRED.source})}).then(()=>{$("credmsg").textContent="已清除";loadSettings();});
+};
+$("credtest").onclick=()=>{
+  if(!CRED)return;
+  $("credmsg").textContent="正在用当前保存的 Key 请求一次…";
+  fetch("/api/credentials/test",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({source:CRED.source})}).then(r=>r.json()).then(d=>{
+      $("credmsg").textContent=d.ok?("连接正常，返回 "+d.count+" 条"):("连接失败："+(d.error||"未知原因"));
+    }).catch(e=>{$("credmsg").textContent=String(e);});
+};
+function renderTeam(profile){
+  const box=$("teamdims");box.innerHTML="";
+  DIMS.forEach(d=>{
+    const p=profile[d.key]||{level:3,note:""};
+    const div=document.createElement("div");div.className="dim";
+    const top=document.createElement("div");top.className="top";
+    const name=document.createElement("b");name.textContent=d.label+"（权重 "+d.weight.toFixed(2)+"）";
+    const val=document.createElement("span");val.id="lv_"+d.key;val.textContent=p.level+" 级 · "+d.hint;
+    top.append(name,val);
+    const range=document.createElement("input");range.type="range";range.min="1";range.max="5";range.step="1";
+    range.value=p.level;range.id="rg_"+d.key;
+    range.oninput=()=>{val.textContent=range.value+" 级 · "+d.hint;scoreTeam();};
+    const note=document.createElement("textarea");note.id="note_"+d.key;note.placeholder="补充说明（可空，例如：有重点实验室 / 3 名博士生）";note.value=p.note||"";
+    div.append(top,range,note);box.appendChild(div);
+  });
+  scoreTeam();
+}
+function teamProfile(){
+  const out={};DIMS.forEach(d=>{out[d.key]={level:+($("rg_"+d.key)||{}).value||3,note:($("note_"+d.key)||{}).value||""};});return out;
+}
+function scoreTeam(){
+  let s=0;DIMS.forEach(d=>{s+=((+($("rg_"+d.key)||{}).value||3)*d.weight);});
+  const band=s>=4.2?"强":(s>=3.0?"中":"弱");
+  $("teamscore").textContent="当前综合 "+s.toFixed(2)+" / 5（"+band+"）";
+}
+$("teamsave").onclick=()=>{
+  fetch("/api/team",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({profile:teamProfile()})}).then(r=>r.json()).then(d=>{
+      if(d.evaluation)$("teamscore").textContent=`已保存 · 综合 ${d.evaluation.score} / 5（${d.evaluation.band}）`;
+    });
+};
+loadSettings();
 function loadModels(){
   fetch("/api/models").then(r=>r.json()).then(data=>{
     const sel=$("model");sel.innerHTML="";
@@ -193,10 +342,18 @@ function render(md){
 }
 function showResult(res){
   $("result").style.display="block";
-  $("meta").textContent=`检索 ${res.found} 篇 · 同域 ${res.kept??res.found} 篇 · 挡掉 ${res.dropped??0} 篇 · 全文 ${res.fetched} 篇 · 卡片 ${res.cards} 张 · tokens ${res.tokens}`;
-  $("download").href="/api/download?id="+taskId;
-  fetch("/api/report?id="+taskId).then(r=>r.text()).then(md=>{
-    const secs=splitSections(md);
+  const src=(res.sources||[]).map(s=>s.label+" "+s.count).join(" · ");
+  $("meta").textContent=`检索 ${res.found} 篇（${src||"Europe PMC"}） · 同域 ${res.kept??res.found} 篇 · 挡掉 ${res.dropped??0} 篇 · 全文 ${res.fetched} 篇 · 卡片 ${res.cards} 张 · tokens ${res.tokens}`;
+  $("dlreport").href="/api/report?id="+taskId;
+  $("dlproposal").href="/api/proposal?id="+taskId;
+  $("dldocx").href="/api/proposal.docx?id="+taskId;
+  $("dldocx").style.display=res.proposal_docx?"inline":"none";
+  Promise.all([
+    fetch("/api/proposal?id="+taskId).then(r=>r.text()).catch(()=>""),
+    fetch("/api/report?id="+taskId).then(r=>r.text()).catch(()=>"")
+  ]).then(([pmd,rmd])=>{
+    const secs=splitSections(pmd).map(s=>({title:"开题 · "+s.title,body:s.body}))
+      .concat(splitSections(rmd).map(s=>({title:"证据 · "+s.title,body:s.body})));
     const tabs=$("tabs");tabs.innerHTML="";
     secs.forEach((s,i)=>{
       const b=document.createElement("button");b.textContent=s.title;
@@ -252,9 +409,13 @@ $("run").onclick=()=>{
   $("run").disabled=true;$("result").style.display="none";$("error").textContent="";
   $("progress").style.display="block";$("fill").style.width="0";$("pct").textContent="0%";$("step").textContent="提交中";
   $("log").innerHTML="";$("live").textContent="";liveBase=null;
+  const sources=[].slice.call($("sources").querySelectorAll("input[type=checkbox]"))
+    .filter(c=>c.checked).map(c=>c.id.replace("src_",""));
+  if(!sources.length){alert("至少勾一个检索源");return;}
   const payload={direction,domain_key:$("domain").value,platform:$("platform").value,budget:$("budget").value,period:$("period").value,
     wet_lab:$("wet").value,years:`${fy}-${ty}`,search_limit:+$("search").value,
-    fetch_limit:+$("fetch").value,card_limit:+$("cards").value,model_name:$("model").value};
+    fetch_limit:+$("fetch").value,card_limit:+$("cards").value,model_name:$("model").value,
+    sources,oecd:$("oecd_sub").value,team_profile:teamProfile(),owner:$("owner").value};
   fetch("/api/run",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)})
     .then(r=>r.json()).then(d=>{taskId=d.id;timer=setInterval(poll,1200);poll();})
     .catch(e=>{$("error").textContent=String(e);$("run").disabled=false;});
@@ -348,14 +509,81 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
+        if route.path == "/api/settings":
+            self._json({"sources": credentials.all_status(),
+                        "team": {"profile": team.load(), "dimensions": list(team.DIMENSIONS),
+                                 "evaluation": team.evaluate()},
+                        "oecd": oecd.as_json()})
+            return
+        if route.path == "/api/proposal":
+            task_id = (query.get("id") or [""])[0]
+            with LOCK:
+                task = TASKS.get(task_id)
+            if not task or not task.get("result") or not task["result"].get("proposal"):
+                self._json({"error": "还没有开题报告"}, 404)
+                return
+            self._send(200, Path(task["result"]["proposal"]).read_bytes(),
+                       "text/markdown; charset=utf-8")
+            return
+        if route.path == "/api/proposal.docx":
+            task_id = (query.get("id") or [""])[0]
+            with LOCK:
+                task = TASKS.get(task_id)
+            path = (task or {}).get("result", {}).get("proposal_docx") if task else ""
+            if not path or not Path(path).exists():
+                self._json({"error": "没有 Word 版（可能未装 python-docx）"}, 404)
+                return
+            body = Path(path).read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type",
+                             "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+            self.send_header("Content-Disposition", 'attachment; filename="litradar-proposal.docx"')
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         self._json({"error": "not found"}, 404)
 
     def do_POST(self) -> None:  # noqa: N802
-        if urlparse(self.path).path != "/api/run":
-            self._json({"error": "not found"}, 404)
+        path = urlparse(self.path).path
+        origin = self.headers.get("Origin") or ""
+        if origin and not any(h in origin for h in ("127.0.0.1", "localhost")):
+            self._json({"error": "只接受本机页面调用"}, 403)
             return
         length = int(self.headers.get("Content-Length") or 0)
         payload = json.loads(self.rfile.read(length) or b"{}")
+        if path == "/api/credentials":
+            source = str(payload.get("source") or "")
+            if source not in credentials.SPECS:
+                self._json({"error": "未知检索源"}, 400)
+                return
+            try:
+                self._json({"status": credentials.save(source, payload.get("values") or {})})
+            except Exception as exc:  # noqa: BLE001
+                self._json({"error": str(exc)}, 500)
+            return
+        if path == "/api/credentials/clear":
+            source = str(payload.get("source") or "")
+            self._json({"status": credentials.clear(source)})
+            return
+        if path == "/api/credentials/test":
+            source = str(payload.get("source") or "")
+            try:
+                papers, stats = search_all("machine learning", ["machine learning"],
+                                           "2024-2026", 3, [source])
+                ok = bool(stats and stats[0]["ok"])
+                self._json({"ok": ok, "count": len(papers),
+                            "error": "" if ok else (stats[0]["error"] if stats else "无响应")})
+            except Exception as exc:  # noqa: BLE001
+                self._json({"ok": False, "count": 0, "error": str(exc)[:160]})
+            return
+        if path == "/api/team":
+            profile = team.save(payload.get("profile") or {})
+            self._json({"profile": profile, "evaluation": team.evaluate(profile)})
+            return
+        if path != "/api/run":
+            self._json({"error": "not found"}, 404)
+            return
         direction = str(payload.get("direction") or "").strip()
         if not direction:
             self._json({"error": "缺少研究方向"}, 400)
@@ -403,6 +631,10 @@ class Handler(BaseHTTPRequestHandler):
                     model_name=payload.get("model_name", "deepseek"),
                     db_path=DB_PATH,
                     domain_key=payload.get("domain_key", "auto"),
+                    sources_list=payload.get("sources") or ["europepmc"],
+                    oecd_code=str(payload.get("oecd") or ""),
+                    team_profile=payload.get("team_profile") or team.load(),
+                    owner=str(payload.get("owner") or ""),
                     progress=progress,
                     note=note,
                 )
