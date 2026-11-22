@@ -213,6 +213,101 @@ def test_group_identity_patch_and_evidence() -> None:
     assert evidence["verified"] == "2026-11-22"
 
 
+def test_group_global_ror_normalizes_parent_and_child() -> None:
+    item = {
+        "id": "https://ror.org/036xfaa94",
+        "names": [
+            {"value": "State Key Lab of Grassland Agroecosystem", "lang": "en", "types": ["ror_display"]},
+            {"value": "草地农业生态系统国家重点实验室", "lang": "zh", "types": ["label"]},
+        ],
+        "types": ["facility"],
+        "locations": [{"geonames_details": {"country_code": "CN", "country_name": "China"}}],
+        "links": [{"type": "website", "value": "https://skl.example.edu.cn"}],
+        "relationships": [{"type": "parent", "id": "https://ror.org/01mkqqe32", "label": "Lanzhou University"}],
+    }
+    group = groups._normalize_ror(item)
+    assert group
+    assert group["id"] == "ror:036xfaa94"
+    assert group["name_zh"].startswith("草地农业生态系统")
+    assert group["unit"] == "Lanzhou University"
+    assert group["department"].startswith("State Key Lab")
+    assert group["unit_ror"] == "https://ror.org/01mkqqe32"
+    assert group["source_label"] == "ROR"
+
+
+def test_group_global_openalex_uses_parent_and_no_duplicate_department() -> None:
+    item = {
+        "id": "https://openalex.org/I4210154168",
+        "display_name": "Max Planck Institute for Biogeochemistry",
+        "type": "facility",
+        "ror": "https://ror.org/051yxp643",
+        "country_code": "DE",
+        "lineage": ["https://openalex.org/I149899117", "https://openalex.org/I4210154168"],
+        "homepage_url": "https://www.bgc-jena.mpg.de",
+        "associated_institutions": [{
+            "id": "https://openalex.org/I149899117",
+            "ror": "https://ror.org/01hhn8329",
+            "display_name": "Max Planck Society",
+            "country_code": "DE",
+            "type": "nonprofit",
+            "relationship": "parent",
+        }],
+    }
+    group = groups._normalize_openalex(item)
+    assert group
+    assert group["unit"] == "Max Planck Society"
+    assert group["department"] == ""
+    assert group["parent_name"] == "Max Planck Society"
+    assert group["unit_ror"] == "https://ror.org/01hhn8329"
+    patch = groups.identity_patch(group)
+    assert patch["unit"] == "Max Planck Society"
+    assert patch["department"] == ""
+    assert patch["research_group"] == "Max Planck Institute for Biogeochemistry"
+
+
+def test_group_identity_patch_drops_department_equal_to_group_name() -> None:
+    item = {
+        "id": "https://ror.org/036xfaa94",
+        "names": [{"value": "State Key Lab of Grassland Agroecosystem", "lang": "en", "types": ["ror_display"]}],
+        "types": ["facility"],
+        "relationships": [{"type": "parent", "id": "https://ror.org/01mkqqe32", "label": "Lanzhou University"}],
+    }
+    group = groups._normalize_ror(item)
+    patch = groups.identity_patch(group)
+    assert patch["unit"] == "Lanzhou University"
+    assert patch["department"] == ""
+    assert patch["research_group"].startswith("State Key Lab")
+
+
+def test_group_search_merges_global_sources_without_lzu(monkeypatch) -> None:
+    ror = {"id": "ror:051yxp643", "source_kind": "ror", "source_label": "ROR",
+           "name": "Max Planck Institute for Biogeochemistry", "name_zh": "",
+           "short": "", "type": "facility", "type_label": "实验室/设施",
+           "unit": "Max Planck Society", "department": "Max Planck Institute for Biogeochemistry",
+           "unit_ror": "https://ror.org/04z8jv273", "leader": "", "members": [],
+           "directions": [], "platform": "", "platform_level": "", "source": "https://www.bgc-jena.mpg.de",
+           "verified": "", "score": 100, "ids": {"ror": "https://ror.org/051yxp643"}}
+    openalex = {"id": "openalex:I4210109156", "source_kind": "openalex", "source_label": "OpenAlex",
+                "name": "Max Planck Institute for Astronomy", "name_zh": "",
+                "short": "MPIA", "type": "facility", "type_label": "实验室/设施",
+                "unit": "Max Planck Society", "department": "Max Planck Institute for Astronomy",
+                "unit_ror": "", "leader": "", "members": [], "directions": [],
+                "platform": "", "platform_level": "", "source": "https://www.mpia.de",
+                "verified": "", "score": 80, "ids": {"openalex": "https://openalex.org/I4210109156"}}
+    monkeypatch.setattr(groups, "_search_ror", lambda q, limit=8: [ror])
+    monkeypatch.setattr(groups, "_search_openalex", lambda q, limit=8: [openalex])
+    monkeypatch.setattr(groups, "_search_wikidata", lambda q, limit=5: [])
+    rows = groups.search("Max Planck Institute", limit=5)
+    assert rows and rows[0]["source_kind"] == "ror"
+    assert any(row["source_kind"] == "openalex" for row in rows)
+
+
+def test_group_empty_query_only_returns_local_overlay() -> None:
+    rows = groups.search("")
+    assert len(rows) == 11
+    assert all(row["id"].startswith("lzu-caoye-") for row in rows)
+
+
 def test_team_schema_has_no_corresponding_author_fields() -> None:
     keys = [row["key"] for row in team.schema()["identity"]]
     assert "research_group" in keys and "group_leader" in keys

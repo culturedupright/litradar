@@ -171,8 +171,9 @@ def _score_name(query: str, names: list[str]) -> int:
             continue
         q_tokens = set(re.findall(r"[a-z0-9]+|[\u4e00-\u9fff]{2,}", q))
         n_tokens = set(re.findall(r"[a-z0-9]+|[\u4e00-\u9fff]{2,}", n))
-        if q_tokens and n_tokens:
-            best = max(best, int(20 + 40 * len(q_tokens & n_tokens) / len(q_tokens | n_tokens)))
+        common = q_tokens & n_tokens
+        if common:
+            best = max(best, int(20 + 40 * len(common) / len(q_tokens | n_tokens)))
     return best
 
 

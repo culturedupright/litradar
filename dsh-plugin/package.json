@@ -1,6 +1,6 @@
 {
   "name": "litradar-dsh-plugin",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "description": "题眼 LitRadar：在 DeepSeek Harness 左侧栏挂载文献雷达面板，并自动托管本地引擎",
   "type": "module",
   "main": "lib/index.js",

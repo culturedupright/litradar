@@ -132,6 +132,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .match .row{display:flex;align-items:flex-start;gap:9px}
 .match input[type=radio]{margin-top:5px}
 .match b{font-size:14px}
+.match .orglogo{float:right;width:34px;height:34px;object-fit:contain;border-radius:4px;background:#f2f4f6;margin-left:8px}
 .match .meta{font-size:12px;color:var(--sub);margin-top:4px}
 .match .acts{display:flex;flex-wrap:wrap;gap:7px;margin-top:7px}
 .match .acts button{padding:4px 10px;font-size:12px;background:#eef1f4;color:var(--ink)}
@@ -360,7 +361,16 @@ function hideSuggest(key){
 }
 function scheduleSuggest(key){
   clearTimeout(suggestTimer);
+  const box=$("sug_"+(key==="group"?"group":key));
+  if(box)box.innerHTML='<div class="meta">正在全球检索…</div>';
   suggestTimer=setTimeout(()=>loadSuggestions(key),380);
+}
+function groupFallback(q){
+  const item=document.createElement("div");item.className="item";
+  item.innerHTML='<b>使用当前输入：'+esc(q)+'</b><span class="pick">自定义 · 采用</span>'+
+    '<div class="meta">公开库未收录也能用；单位、院系请自己补，官网请回填核对。</div>';
+  item.onclick=()=>useCurrentGroup();
+  return item;
 }
 function loadSuggestions(key){
   const box=$("sug_"+(key==="group"?"group":key));
@@ -372,21 +382,24 @@ function loadSuggestions(key){
   const seq=++suggestSeq;
   box.innerHTML='<div class="meta">正在检索…</div>';
   if(key==="group"){
+    if(q)box.appendChild(groupFallback(q));
     fetch("/api/groups?q="+encodeURIComponent(q)).then(r=>r.json()).then(d=>{
       if(seq!==suggestSeq)return;
       if(d.error){box.innerHTML='<div class="bad">'+esc(d.error)+'</div>';return;}
       const rows=(d.groups||[]).map(g=>({
         html:'<b>'+esc(g.name)+'</b><span class="pick">'+esc(g.short||"")+' · 采用</span>'+
-          '<div class="meta">'+esc([g.type_label,g.leader?("负责人 "+g.leader):"官网未列负责人",
+          '<div class="meta">'+esc([g.source_label,g.type_label,g.country_name||g.country,
+          g.leader?("负责人 "+g.leader):"档案未列负责人",
           (g.directions||[]).slice(0,2).join("；"),g.verified?("核验 "+g.verified):""].filter(Boolean).join(" · "))+'</div>',
         click:()=>selectGroup(g)
       }));
       box.innerHTML="";
-      if(!rows.length){box.innerHTML='<div class="meta">没有匹配的研究群；补全称或简称，或按单位/院系手填。</div>';return;}
+      if(!q){box.innerHTML='<div class="meta">输入研究所、实验室、中心或大学名称；全球检索 ROR / OpenAlex / Wikidata。</div>';return;}
       rows.forEach(r=>{
         const item=document.createElement("div");item.className="item";item.innerHTML=r.html;
         item.onclick=r.click;box.appendChild(item);
       });
+      box.appendChild(groupFallback(q));
     }).catch(e=>{if(seq===suggestSeq)box.innerHTML='<div class="bad">研究群目录读取失败：'+esc(e)+'</div>';});
     return;
   }
@@ -428,13 +441,36 @@ function selectInstitution(inst){
   $("lookmsg").textContent=msg;
   $("lookmsg").classList.add("good");
   hideSuggest("unit");
-  $("lookbox").innerHTML='<div class="match"><b>研究群画像 · 单位</b><div class="meta">'+
+  $("lookbox").innerHTML='<div class="match"><b>研究单元画像 · 单位</b><div class="meta">'+
     esc(inst.name||inst.name_zh)+' · ROR '+esc(inst.ror||"")+
-    (dept?(' · 院系 '+esc(dept)):'')+'</div><div class="meta">下一步：输入研究群简称，如“草微中心”。</div></div>';
+    (dept?(' · 院系 '+esc(dept)):'')+'</div><div class="meta">下一步：输入研究所/实验室/中心名，全球检索 ROR、OpenAlex、Wikidata；院系内部单元可手填。</div></div>';
+}
+function useCurrentGroup(){
+  const q=($("id_research_group")&&$("id_research_group").value||"").trim();
+  if(!q)return;
+  const unit=($("id_unit")&&$("id_unit").value||"").trim();
+  const dept=($("id_department")&&$("id_department").value||"").trim();
+  clearGroupVerified();
+  VERIFIED.group_name=q;
+  VERIFIED.group_short="";
+  VERIFIED.group_type="自定义科研单元（公开库未收录）";
+  hideSuggest("group");
+  $("lookmsg").textContent="已采用自定义研究单元："+q+"；请补单位、院系与官网核对。";
+  $("lookmsg").classList.add("good");
+  $("lookbox").innerHTML='<div class="match"><b>研究单元档案 · '+esc(q)+'</b>'+
+    '<div class="meta">自定义 · 公开库未收录 · '+esc(unit||"单位待填")+(dept?(" · "+esc(dept)):"")+'</div>'+
+    '<div class="meta">下一步：在单位、院系里补上级机构；负责人与方向按课题组官网核对。</div></div>';
+  scheduleTeam();
 }
 function selectGroup(g){
-  $("id_unit").value=g.unit||"兰州大学";
-  $("id_department").value=g.department||"草地农业科技学院";
+  const unit=g.unit||g.institution||"";
+  const prevUnit=($("id_unit")&&$("id_unit").value||"").trim();
+  if(unit&&unit!==prevUnit){
+    $("id_unit").value=unit;
+    $("id_department").value=g.department||"";
+  }else if(g.department){
+    $("id_department").value=g.department;
+  }
   $("id_research_group").value=g.name||"";
   if($("id_group_leader"))$("id_group_leader").value=g.leader||"";
   if(g.platform_level&&$("id_org"))$("id_org").value=g.platform_level;
@@ -447,9 +483,11 @@ function selectGroup(g){
   VERIFIED.group_platform=g.platform||"";
   VERIFIED.group_source=g.source||"";
   VERIFIED.group_verified=g.verified||"";
-  VERIFIED.unit_ror=g.unit_ror||VERIFIED.unit_ror;
-  VERIFIED.unit_official=g.unit||VERIFIED.unit_official;
-  $("lookmsg").textContent="已采用研究群："+g.name+"（"+g.type_label+"）；档案来自官网，职级不自动推断。";
+  VERIFIED.unit_ror=g.unit_ror||"";
+  VERIFIED.unit_official=unit;
+  const src=g.source_label||"公开记录";
+  $("lookmsg").textContent="已采用研究单元："+g.name+"（"+src+"）；"+
+    (g.source_kind==="local"?"来自本地核验档。":"来自全球公开库，负责人/方向需回官网核对。");
   $("lookmsg").classList.add("good");
   hideSuggest("group");
   renderGroup(g);
@@ -458,13 +496,15 @@ function selectGroup(g){
 function renderGroup(g){
   const dirs=(g.directions||[]);
   const members=(g.members||[]);
-  let html='<div class="match"><b>研究群档案 · '+esc(g.name)+'</b>'+
-    '<div class="meta">'+esc([g.short,g.type_label,g.unit,g.department].filter(Boolean).join(" · "))+'</div>'+
-    '<div class="meta">负责人：'+esc(g.leader||"官网未列")+'</div>'+
-    '<div class="meta">研究方向：'+esc(dirs.length?dirs.join("；"):"官网未列，需按研究群页面补充")+'</div>'+
-    '<div class="meta">平台：'+esc(g.platform||"待核对")+'</div>'+
-    '<div class="meta">成员：'+esc(members.length?members.join("、"):"官网未列")+'</div>'+
-    '<div class="meta">来源：'+esc(g.source||"")+' · 核验 '+esc(g.verified||"")+'</div>';
+  const src=g.source_label||"公开记录";
+  const img=g.image?('<img class="orglogo" src="'+esc(g.image)+'" alt="">'):"";
+  let html='<div class="match">'+img+'<b>研究单元档案 · '+esc(g.name)+'</b>'+
+    '<div class="meta">'+esc([g.short,g.type_label,src,g.unit,g.department,g.country_name||g.country].filter(Boolean).join(" · "))+'</div>'+
+    '<div class="meta">负责人：'+esc(g.leader||"公开记录未提供")+'</div>'+
+    '<div class="meta">研究方向：'+esc(dirs.length?dirs.join("；"):"公开记录未提供，需按官网核对")+'</div>'+
+    '<div class="meta">平台：'+esc(g.platform||"公开记录未提供")+'</div>'+
+    '<div class="meta">成员：'+esc(members.length?members.join("、"):"公开记录未提供")+'</div>'+
+    '<div class="meta">来源：'+esc(g.source||"")+' · 核验 '+esc(g.verified||"公开记录未核验")+'</div>';
   if(g.note)html+='<div class="meta">'+esc(g.note)+'</div>';
   html+='</div>';
   $("lookbox").innerHTML=html;
@@ -490,7 +530,7 @@ function renderTeam(){
       const sKey=f.key==="research_group"?"group":f.key;
       input.autocomplete="off";
       input.oninput=()=>scheduleSuggest(sKey);
-      if(f.key==="research_group")input.onfocus=()=>loadSuggestions("group");
+      if(f.key==="research_group")input.onfocus=()=>{if(!input.value.trim())loadSuggestions("group");};
       const sug=document.createElement("div");sug.className="suggest";sug.id="sug_"+sKey;
       wrap.append(lab,input,sug);quick.appendChild(wrap);
       return;
