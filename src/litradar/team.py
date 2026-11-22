@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from .config import HOME
@@ -112,8 +113,11 @@ GROUP_LEVEL = {"1 人": 1, "2–3 人": 2, "4–8 人": 3, "9 人以上": 4,
 PROJECT_LEVEL = {"无在研项目": 1, "校级/院级项目": 2, "省部级项目": 3,
                  "国家级项目": 4, "国家级重大/重点项目": 5}
 
-DEFAULTS_IDENTITY = {"unit": "", "role": "博士生", "org": "省部级重点实验室/平台",
+DEFAULTS_IDENTITY = {"unit": "", "department": "", "unit_ror": "", "unit_official": "",
+                     "role": "博士生", "org": "省部级重点实验室/平台",
                      "author": "", "author_title": "教授/正高",
+                     "author_openalex": "", "author_orcid": "", "author_doi": "",
+                     "lookup_confidence": "", "lookup_note": "",
                      "representative": "", "open_science": "部分开放",
                      "group_size": "4–8 人", "project": "省部级项目"}
 DEFAULTS_CONDITIONS = {"experiment": "干湿结合", "data_source": "共享数据库",
@@ -169,7 +173,15 @@ def _merge(raw: dict | None) -> dict:
     identity = raw.get("identity") if isinstance(raw.get("identity"), dict) else {}
     for key, value in identity.items():
         if key in data["identity"] and isinstance(value, str):
-            data["identity"][key] = value[:80]
+            limit = 220 if key in ("unit_ror", "author_openalex", "author_orcid",
+                                   "author_doi", "lookup_note") else 80
+            data["identity"][key] = value[:limit]
+    if not data["identity"].get("department") and data["identity"].get("unit"):
+        match = re.match(r"^(.{2,}?(?:大学|学院|研究院|研究所|中心|医院|学校))(.{2,})$",
+                         data["identity"]["unit"])
+        if match:
+            data["identity"]["unit"] = match.group(1)
+            data["identity"]["department"] = match.group(2)
     conditions = raw.get("conditions") if isinstance(raw.get("conditions"), dict) else {}
     for key, value in conditions.items():
         if key in data["conditions"] and isinstance(value, str):
@@ -242,8 +254,10 @@ def schema() -> dict:
     """给界面渲染表单：快速填写项、五维档位、研究条件选项。"""
     return {
         "identity": [
-            {"key": "unit", "label": "单位/院系", "type": "text",
-             "placeholder": "例：兰州大学草地农业科技学院"},
+            {"key": "unit", "label": "单位（机构）", "type": "text",
+             "placeholder": "例：兰州大学"},
+            {"key": "department", "label": "院系/部门", "type": "text",
+             "placeholder": "例：草地农业科技学院"},
             {"key": "role", "label": "申请人身份", "type": "select", "options": ROLES},
             {"key": "org", "label": "单位平台层级", "type": "select", "options": ORGS},
             {"key": "author", "label": "通讯作者", "type": "text", "placeholder": "姓名"},
@@ -267,19 +281,44 @@ def schema() -> dict:
     }
 
 
+def _full_unit(identity: dict) -> str:
+    unit = str(identity.get("unit") or "").strip()
+    department = str(identity.get("department") or "").strip()
+    if not unit:
+        return department
+    if not department or department in unit:
+        return unit
+    cjk = lambda s: bool(s) and "\u4e00" <= s[0] <= "\u9fff"  # noqa: E731
+    sep = "" if (cjk(unit) and cjk(department)) else " "
+    return f"{unit}{sep}{department}"
+
+
 def markdown_block(profile: dict | None = None) -> list[str]:
     result = evaluate(profile)
     identity = result["identity"]
+    full_unit = _full_unit(identity)
     lines = ["### 课题组条件与可行性", "",
              f"- 综合得分：**{result['score']} / 5**（{result['band']}）——{result['advice']}",
-             f"- 单位：{identity.get('unit') or '待申请人补充'}；"
+             f"- 单位：{full_unit or '待申请人补充'}；"
              f"申请人身份：{identity.get('role')}；"
              f"通讯作者：{(identity.get('author') or '待补')}（{identity.get('author_title')}）；"
              f"课题组规模：{identity.get('group_size')}；在研项目：{identity.get('project')}",
              f"- 代表作与贡献：{identity.get('representative') or '待申请人按代表作逐篇说明'}；"
-             f"开放科学实践：{identity.get('open_science')}",
-             "- 五维评级（1–5 级；权重按通讯评议常用结构，可按本单位口径调整）：", "",
-             "| 维度 | 权重 | 评级 | 档位判据 | 来源 |", "| --- | --- | --- | --- | --- |"]
+             f"开放科学实践：{identity.get('open_science')}"]
+    verify = []
+    if identity.get("unit_ror"):
+        verify.append(f"单位 ROR：{identity['unit_ror']}")
+    if identity.get("author_orcid"):
+        verify.append(f"通讯作者 ORCID：{identity['author_orcid']}")
+    if identity.get("author_doi"):
+        verify.append(f"核验 DOI：{identity['author_doi']}")
+    if identity.get("lookup_confidence"):
+        verify.append(f"身份核验置信度：{identity['lookup_confidence']}")
+    if verify:
+        lines.append("- 身份核验：" + "；".join(verify) +
+                     (f"；{identity['lookup_note']}" if identity.get("lookup_note") else ""))
+    lines += ["- 五维评级（1–5 级；权重按通讯评议常用结构，可按本单位口径调整）：", "",
+              "| 维度 | 权重 | 评级 | 档位判据 | 来源 |", "| --- | --- | --- | --- | --- |"]
     for row in result["rows"]:
         origin = "自动推算" if row["source"] == "auto" else "手工填写"
         lines.append(f"| {row['label']} | {row['weight']:.2f} | {row['level']} | "

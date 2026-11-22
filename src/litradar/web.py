@@ -9,7 +9,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import credentials, oecd, team
+from . import credentials, identity, oecd, team
 from .config import DB_PATH
 from .llm import resolve_model, set_activity
 from .model_catalog import list_models
@@ -87,6 +87,21 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .dim .top span{font-size:12px;color:var(--sub)}
 .dim select{width:100%;margin-top:6px}
 .dim .crit{margin-top:5px;font-size:12px;color:var(--sub)}
+.lookup{border:1px solid var(--line);background:#fbfbfc;border-radius:8px;padding:12px;margin:12px 0}
+.lookup .grid{grid-template-columns:repeat(2,1fr)}
+.match{border:1px solid var(--line);border-radius:6px;padding:9px 11px;margin:8px 0;background:#fff}
+.match .row{display:flex;align-items:flex-start;gap:9px}
+.match input[type=radio]{margin-top:5px}
+.match b{font-size:14px}
+.match .meta{font-size:12px;color:var(--sub);margin-top:4px}
+.match .acts{display:flex;flex-wrap:wrap;gap:7px;margin-top:7px}
+.match .acts button{padding:4px 10px;font-size:12px;background:#eef1f4;color:var(--ink)}
+.chip{display:inline-block;border:1px solid var(--line);background:#fff;border-radius:12px;padding:2px 9px;margin:3px 4px 0 0;font-size:12px;cursor:pointer}
+.chip:hover{border-color:var(--accent);color:var(--accent)}
+.work{padding:7px 0;border-bottom:1px dashed var(--line);font-size:13px}
+.work:last-child{border-bottom:0}
+.work .tagline{font-size:12px;color:var(--sub)}
+.good{color:var(--accent)} .bad{color:var(--warn)}
 .foot{margin-top:34px;color:var(--sub);font-size:12px}
 </style>
 </head>
@@ -132,8 +147,23 @@ button:disabled{opacity:.45;cursor:not-allowed}
 
 <div class="panel">
 <h2 class="sect">课题组条件（基金评审五维 + 研究条件）</h2>
-<p class="hint">先填单位、申请人身份、通讯作者、代表作、人数与在研项目；五维按固定判据推算，可逐项改档位。成果评价按 DORA 原则，以代表作与具体贡献为主。</p>
+<p class="hint">先填单位与通讯作者姓名，点“检索核对”：插件用 ROR 规范单位、用 OpenAlex 列作者与近作，再由你确认。五维按固定判据推算，可逐项改档位；成果评价按 DORA 原则。</p>
 <div class="grid" id="teamquick"></div>
+<div class="lookup">
+  <div class="actions" style="margin:0 0 8px">
+    <button class="mini" id="looksearch">检索核对单位与通讯作者</button>
+    <span class="hint">填姓名 + 单位即可；先匹配 ROR 机构，再列作者候选。选作者后带出近作、通讯标记与院系写法。</span>
+  </div>
+  <div class="grid">
+    <div class="field"><label>ORCID（可选，精确匹配）</label><input id="look_orcid" placeholder="0000-0000-0000-0000"></div>
+    <div class="field"><label>代表论文 DOI（可选，核验通讯作者）</label><input id="look_doi" placeholder="10.xxxx/xxxxx"></div>
+  </div>
+  <div class="actions" style="margin-top:10px">
+    <button class="mini ghost" id="lookdoicheck">只用 DOI 核验</button>
+    <span class="hint" id="lookmsg"></span>
+  </div>
+  <div id="lookbox"></div>
+</div>
 <div class="actions">
   <button class="mini" id="teamderive">按填写重新推算</button>
   <button class="mini" id="teamsave">保存</button>
@@ -170,7 +200,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
 <script>
 let taskId=null,timer=null;
 const $=id=>document.getElementById(id);
-let CRED=null, DIMS=[], SCHEMA=null, TEAM=null;
+let CRED=null, DIMS=[], SCHEMA=null, TEAM=null, VERIFIED={}, LOOK=null;
 function loadSettings(){
   fetch("/api/settings").then(r=>r.json()).then(d=>{
     buildOecd(d.oecd||[]);
@@ -178,6 +208,7 @@ function loadSettings(){
     SCHEMA=d.team.schema||{identity:[],dimensions:[],conditions:[]};
     DIMS=SCHEMA.dimensions||[];
     TEAM=d.team.profile||{identity:{},dims:{},conditions:{}};
+    VERIFIED=syncVerified(TEAM.identity||{});
     renderTeam();
   }).catch(e=>{$("sources").textContent="读取配置失败："+e;});
 }
@@ -262,6 +293,201 @@ $("credtest").onclick=()=>{
       $("credmsg").textContent=d.ok?("连接正常，返回 "+d.count+" 条"):("连接失败："+(d.error||"未知原因"));
     }).catch(e=>{$("credmsg").textContent=String(e);});
 };
+function esc(s){
+  return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+function syncVerified(id){
+  const keys=["unit_ror","unit_official","author_openalex","author_orcid","author_doi",
+    "lookup_confidence","lookup_note","author_name"];
+  const out={};keys.forEach(k=>{if(id&&id[k])out[k]=id[k];});return out;
+}
+function deptFromUnit(original, official, zh){
+  const candidates=[official,zh].filter(Boolean).sort((a,b)=>b.length-a.length);
+  const text=String(original||"").trim();
+  for(const c of candidates){
+    const at=text.indexOf(c);
+    if(at>=0){
+      const rest=text.slice(at+c.length).replace(/^[\\s,，;；/、\\-]+/,"").trim();
+      if(rest)return rest;
+    }
+  }
+  return "";
+}
+function selectInstitution(inst){
+  const original=$("id_unit").value.trim();
+  const dept=deptFromUnit(original,inst.name,inst.name_zh);
+  $("id_unit").value=inst.name||inst.name_zh||original;
+  if(dept&&$("id_department"))$("id_department").value=dept;
+  VERIFIED.unit_ror=inst.id||"";
+  VERIFIED.unit_official=inst.name||inst.name_zh||"";
+  VERIFIED.lookup_confidence="单位已核验";
+  VERIFIED.lookup_note="ROR "+(inst.ror||"")+"；"+(inst.country_name||"")+
+    (inst.website?("；"+inst.website):"");
+  $("lookmsg").textContent="已采用单位："+(inst.name||inst.name_zh)+
+    (dept?(" / "+dept):"")+"。ROR "+(inst.ror||"");
+  $("lookmsg").classList.add("good");
+  setTimeout(lookupSearch,0);
+}
+function setOrg(level){
+  const sel=$("id_org");
+  if(!sel||!level)return;
+  [...sel.options].forEach(o=>{if(o.value===level)sel.value=level;});
+  $("lookmsg").textContent="平台层级已设为："+sel.value+"（可再手改）";
+}
+function selectAuthor(a){
+  $("id_author").value=a.name||"";
+  VERIFIED.author_openalex=a.id||"";
+  VERIFIED.author_orcid=a.orcid||"";
+  VERIFIED.author_name=a.name||"";
+  VERIFIED.author_doi="";
+  VERIFIED.lookup_confidence=a.confidence||"";
+  VERIFIED.lookup_note="OpenAlex "+(a.id||"")+(a.orcid?("；ORCID "+a.orcid):"")+
+    "；作品 "+a.works_count+" 篇";
+  $("lookmsg").textContent="已采用作者："+a.name+"（"+a.confidence+"置信度），正在取近作…";
+  const box=$("lookbox");
+  const old=$("workpanel");if(old)old.remove();
+  const panel=document.createElement("div");panel.className="match";panel.id="workpanel";
+  panel.innerHTML='<div class="meta">正在读取近作…</div>';box.appendChild(panel);
+  fetch("/api/identity",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({action:"works",author_id:a.id,name:a.name,
+      unit:$("id_unit").value,ror:VERIFIED.unit_ror||""})}).then(r=>r.json()).then(d=>{
+    renderWorks(d,a);
+  }).catch(e=>{panel.innerHTML='<div class="bad">近作读取失败：'+esc(e)+'</div>';});
+}
+function renderWorks(d,a){
+  const panel=$("workpanel");if(!panel)return;
+  if(d.error){panel.innerHTML='<div class="bad">'+esc(d.error)+'</div>';return;}
+  let html='<div class="meta"><b>'+esc(a.name)+'</b> 近作 · 通讯标记来自 OpenAlex，仍需按出版社页面核对。</div>';
+  if(d.departments&&d.departments.length){
+    html+='<div class="meta">论文里出现的院系写法（点一下填入）：</div>';
+    d.departments.forEach(x=>{
+      html+='<span class="chip" data-dept="'+esc(x.value)+'">'+esc(x.value)+
+        ' <span class="hint">'+x.count+' 次</span></span>';
+    });
+  }
+  if(d.platform_hint){
+    html+='<div class="acts"><button class="mini ghost" data-org="'+esc(d.platform_hint)+'">采用平台层级：'+
+      esc(d.platform_hint)+'</button></div>';
+  }
+  html+='<div style="margin-top:8px">';
+  (d.works||[]).forEach(w=>{
+    const pos={first:"第一作者",middle:"中间作者",last:"末位作者"}[w.position]||w.position||"";
+    html+='<div class="work"><b>'+esc(w.title||"(无题)")+'</b>'+
+      '<div class="tagline">'+w.year+' · '+esc(w.journal||"")+' · '+esc(pos)+
+      (w.is_corresponding?' · <span class="good">通讯作者</span>':'')+
+      (w.doi?' · DOI '+esc(w.doi):'')+'</div></div>';
+  });
+  html+='</div>';
+  if(d.representative_suggestion){
+    html+='<div class="acts"><button class="mini" id="useRep">带入代表作候选</button></div>';
+  }
+  const first=(d.works||[]).find(w=>w.is_corresponding)||(d.works||[])[0]||{};
+  panel.innerHTML=html;
+  panel.querySelectorAll("[data-dept]").forEach(el=>{
+    el.onclick=()=>{if($("id_department"))$("id_department").value=el.dataset.dept;
+      $("lookmsg").textContent="院系已填入："+el.dataset.dept;};
+  });
+  panel.querySelectorAll("[data-org]").forEach(el=>{
+    el.onclick=()=>setOrg(el.dataset.org);
+  });
+  const use=$("useRep");
+  if(use)use.onclick=()=>{
+    $("id_representative").value=d.representative_suggestion||"";
+    VERIFIED.author_doi=first.doi||"";
+    VERIFIED.lookup_confidence=(VERIFIED.lookup_confidence||"中")+"；代表作已带入";
+    $("lookmsg").textContent="代表作候选已填入，个人贡献请按实际补写。";
+  };
+}
+function renderLookup(d){
+  LOOK=d;
+  const box=$("lookbox");box.innerHTML="";
+  if(d.error){box.innerHTML='<div class="bad">'+esc(d.error)+'</div>';return;}
+  if(d.institutions&&d.institutions.length){
+    const h=document.createElement("div");h.className="meta";
+    h.innerHTML="<b>单位候选</b>（ROR 规范名，点选后写入单位）";box.appendChild(h);
+    d.institutions.forEach((inst,i)=>{
+      const el=document.createElement("div");el.className="match";
+      const radio='<input type="radio" name="lookinst" value="'+i+'">';
+      el.innerHTML='<div class="row">'+radio+'<div><b>'+esc(inst.name||inst.name_zh)+
+        '</b><div class="meta">'+esc([inst.name_zh,inst.country_name,inst.type,
+        (inst.ror?"ROR "+inst.ror:"")].filter(Boolean).join(" · "))+'</div>'+
+        (inst.domains&&inst.domains.length?'<div class="meta">域名：'+esc(inst.domains.join("、"))+'</div>':'')+
+        '<div class="acts"><button class="mini">采用此单位</button></div></div></div>';
+      el.querySelector("button").onclick=()=>selectInstitution(inst);
+      el.querySelector("input").onchange=()=>selectInstitution(inst);
+      box.appendChild(el);
+    });
+  } else if(d.query&&d.query.unit){
+    box.innerHTML+='<div class="meta">ROR 没匹配到单位，请补全官方名称或直接手填。</div>';
+  }
+  if(d.authors&&d.authors.length){
+    const h=document.createElement("div");h.className="meta";h.style.marginTop="10px";
+    h.innerHTML="<b>通讯作者候选</b>（按姓名、机构与 ORCID 匹配度排序）";box.appendChild(h);
+    d.authors.forEach((a,i)=>{
+      const el=document.createElement("div");el.className="match";
+      const insts=(a.institutions||[]).map(x=>x.name).slice(0,4).join("；");
+      const radio='<input type="radio" name="lookauthor" value="'+i+'">';
+      el.innerHTML='<div class="row">'+radio+'<div><b>'+esc(a.name)+
+        '</b> <span class="badge '+(a.confidence==="高"?"ok":"")+'">'+esc(a.confidence)+'置信度</span>'+
+        '<div class="meta">'+esc([insts,a.orcid?("ORCID "+a.orcid):"",a.works_count+" 篇（仅用于重名区分）"].filter(Boolean).join(" · "))+'</div>'+
+        '<div class="acts"><button class="mini">采用此作者并取近作</button></div></div></div>';
+      el.querySelector("button").onclick=()=>selectAuthor(a);
+      el.querySelector("input").onchange=()=>selectAuthor(a);
+      box.appendChild(el);
+    });
+  } else if(d.query&&d.query.name){
+    box.insertAdjacentHTML("beforeend",'<div class="meta">没有找到作者候选。可补 ORCID，或用论文里的英文署名再试；中文姓名在 OpenAlex 不一定收录。</div>');
+  }
+  if(d.note)box.insertAdjacentHTML("beforeend",'<div class="meta">'+esc(d.note)+'</div>');
+}
+function renderDoi(d){
+  const box=$("lookbox");
+  if(!d.ok){box.innerHTML='<div class="bad">'+esc(d.error||"DOI 核验失败")+'</div>';return;}
+  let html='<div class="match"><b>DOI 核验：'+esc(d.title)+'</b>'+
+    '<div class="meta">'+d.year+' · '+esc(d.journal||"")+' · '+esc(d.source||"")+'</div>';
+  html+='<div class="meta">通讯作者（OpenAlex 标记）：'+esc((d.corresponding||[]).join("、")||"未标注")+'</div>';
+  (d.checks||[]).forEach(c=>{html+='<div class="'+(c.ok?"good":"bad")+'">'+
+    (c.ok?"✓ ":"× ")+esc(c.label)+'</div>';});
+  html+='<div class="acts"><button class="mini" id="useDoi">记为核验 DOI</button></div></div>';
+  box.innerHTML=html;
+  $("useDoi").onclick=()=>{
+    VERIFIED.author_doi=d.doi;VERIFIED.lookup_confidence=d.confidence||"";
+    VERIFIED.lookup_note="DOI 核验："+d.doi+(d.title?("；"+d.title.slice(0,80)):"");
+    $("lookmsg").textContent="已记录 DOI 核验结果。";
+  };
+}
+function lookupSearch(){
+  if(!$("id_unit").value.trim()&&!$("id_author").value.trim()){
+    $("lookmsg").textContent="至少填单位或通讯作者姓名。";return;
+  }
+  if(VERIFIED.unit_official&&$("id_unit").value.trim()!==VERIFIED.unit_official){
+    VERIFIED.unit_ror="";VERIFIED.unit_official="";
+  }
+  if(VERIFIED.author_name&&$("id_author").value.trim()!==VERIFIED.author_name){
+    VERIFIED.author_openalex="";VERIFIED.author_orcid="";
+  }
+  $("lookmsg").textContent="正在查 ROR 与 OpenAlex…";$("lookmsg").classList.remove("good");
+  fetch("/api/identity",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({action:"search",unit:$("id_unit").value.trim(),
+      name:$("id_author").value.trim(),orcid:$("look_orcid").value.trim(),
+      doi:$("look_doi").value.trim(),ror:VERIFIED.unit_ror||""})})
+    .then(r=>r.json()).then(d=>{
+      if(d.error){$("lookmsg").textContent=d.error;return;}
+      renderLookup(d);
+      $("lookmsg").textContent="找到 "+(d.institutions||[]).length+" 个单位、"+
+        (d.authors||[]).length+" 个作者候选；点选一条再核对。";
+    }).catch(e=>{$("lookmsg").textContent="检索失败："+String(e);});
+}
+function lookupDoi(){
+  const doi=$("look_doi").value.trim();
+  if(!doi){$("lookmsg").textContent="先填 DOI。";return;}
+  $("lookmsg").textContent="正在用 Crossref + OpenAlex 核验 DOI…";
+  fetch("/api/identity",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({action:"doi",doi,name:$("id_author").value.trim(),
+      unit:$("id_unit").value.trim(),ror:VERIFIED.unit_ror||""})})
+    .then(r=>r.json()).then(renderDoi)
+    .catch(e=>{$("lookmsg").textContent="核验失败："+String(e);});
+}
 function renderTeam(){
   const quick=$("teamquick");quick.innerHTML="";
   (SCHEMA.identity||[]).forEach(f=>{
@@ -328,7 +554,9 @@ function renderTeam(){
   scoreTeam();
 }
 function teamIdentity(){
-  const out={};(SCHEMA.identity||[]).forEach(f=>{out[f.key]=($("id_"+f.key)||{}).value||"";});return out;
+  const out={};(SCHEMA.identity||[]).forEach(f=>{out[f.key]=($("id_"+f.key)||{}).value||"";});
+  Object.assign(out,VERIFIED);
+  return out;
 }
 function teamConditions(){
   const out={};(SCHEMA.conditions||[]).forEach(c=>{out[c.key]=($("cond_"+c.key)||{}).value||c.options[0];});return out;
@@ -350,7 +578,7 @@ $("teamderive").onclick=()=>{
   fetch("/api/team/derive",{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({profile:teamProfile()})}).then(r=>r.json()).then(d=>{
       if(d.error){$("teamhint").textContent=d.error;return;}
-      TEAM=d.profile;renderTeam();
+      TEAM=d.profile;VERIFIED=syncVerified(TEAM.identity||{});renderTeam();
       $("teamhint").textContent="已按填写推算（手动改过的档位保留）";
     }).catch(e=>{$("teamhint").textContent=String(e);});
 };
@@ -358,10 +586,12 @@ $("teamsave").onclick=()=>{
   fetch("/api/team",{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({profile:teamProfile()})}).then(r=>r.json()).then(d=>{
       if(d.error){$("teamhint").textContent=d.error;return;}
-      TEAM=d.profile;renderTeam();
+      TEAM=d.profile;VERIFIED=syncVerified(TEAM.identity||{});renderTeam();
       $("teamhint").textContent=`已保存 · 综合 ${d.evaluation.score} / 5（${d.evaluation.band}）`;
     });
 };
+$("looksearch").onclick=lookupSearch;
+$("lookdoicheck").onclick=lookupDoi;
 loadSettings();
 function loadModels(){
   fetch("/api/models").then(r=>r.json()).then(data=>{
@@ -515,7 +745,7 @@ $("run").onclick=()=>{
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "LitRadar/0.3"
+    server_version = "LitRadar/0.10"
 
     def log_message(self, fmt: str, *args) -> None:  # 静默，避免刷屏
         return
@@ -664,6 +894,12 @@ class Handler(BaseHTTPRequestHandler):
                             "error": "" if ok else (stats[0]["error"] if stats else "无响应")})
             except Exception as exc:  # noqa: BLE001
                 self._json({"ok": False, "count": 0, "error": str(exc)[:160]})
+            return
+        if path == "/api/identity":
+            try:
+                self._json(identity.lookup(str(payload.get("action") or "search"), payload))
+            except Exception as exc:  # noqa: BLE001
+                self._json({"error": f"身份检索失败：{str(exc)[:200]}"}, 500)
             return
         if path == "/api/team":
             profile = team.save(payload.get("profile") or {})

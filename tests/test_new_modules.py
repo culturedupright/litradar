@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from litradar import credentials, oecd, proposal, team
+from litradar import credentials, identity, oecd, proposal, team
 from litradar.models import Paper
 from litradar import sources as source_module
 from litradar.sources import _crossref_year, _inverted, _merge, _parse_pubmed, search_all, tokens
@@ -145,3 +145,97 @@ def test_team_has_dora_and_reporting_standards() -> None:
     assert "ethics" in keys and "data_policy" in keys and "reporting" in keys
     md = "\n".join(team.markdown_block(profile))
     assert "DORA" in md and "ARRIVE" in md and "FAIR" in md
+
+
+def test_team_full_unit_combines_institution_and_department() -> None:
+    profile = team.defaults()
+    profile["identity"].update({"unit": "兰州大学", "department": "草地农业科技学院",
+                                "unit_ror": "https://ror.org/01mkqqe32",
+                                "lookup_confidence": "高"})
+    md = "\n".join(team.markdown_block(profile))
+    assert "兰州大学草地农业科技学院" in md
+    assert "ROR" in md and "高" in md
+
+
+def _ror_fixture() -> dict:
+    return {"items": [
+        {"id": "https://ror.org/01mkqqe32", "names": [
+            {"value": "Lanzhou University", "lang": "en", "types": ["ror_display", "label"]},
+            {"value": "兰州大学", "lang": "zh", "types": ["label"]}],
+         "locations": [{"geonames_details": {"country_code": "CN", "country_name": "China"}}],
+         "types": ["education"], "domains": ["lzu.edu.cn"],
+         "links": [{"type": "website", "value": "https://www.lzu.edu.cn"}],
+         "relationships": [{"type": "child", "label": "State Key Laboratory of Herbage Improvement"}]},
+        {"id": "https://ror.org/05d2xpa49", "names": [
+            {"value": "First Hospital of Lanzhou University", "lang": "en", "types": ["ror_display"]}],
+         "locations": [{"geonames_details": {"country_code": "CN", "country_name": "China"}}],
+         "types": ["healthcare"], "relationships": []},
+    ]}
+
+
+def test_identity_ror_prefers_parent_university(monkeypatch) -> None:
+    monkeypatch.setattr(identity, "_json", lambda url: _ror_fixture())
+    rows = identity.ror_search("兰州大学草地农业科技学院")
+    assert rows and rows[0]["ror"] == "01mkqqe32"
+    assert rows[0]["name_zh"] == "兰州大学"
+    assert rows[0]["children"]
+
+
+def test_identity_author_filter_recent_ror(monkeypatch) -> None:
+    data = {"results": [
+        {"id": "https://openalex.org/A1", "display_name": "Wei Zhang",
+         "raw_author_names": ["Wei Zhang", "张伟"], "orcid": "https://orcid.org/0000-0001-0000-0001",
+         "works_count": 40,
+         "affiliations": [{"institution": {"display_name": "Lanzhou University",
+                                            "ror": "https://ror.org/01mkqqe32",
+                                            "country_code": "CN"}, "years": [2025]}],
+         "last_known_institutions": []},
+        {"id": "https://openalex.org/A2", "display_name": "Wei Zhang",
+         "raw_author_names": ["Wei Zhang"], "works_count": 200,
+         "affiliations": [{"institution": {"display_name": "Oklahoma State University",
+                                            "ror": "https://ror.org/01g9vbr38",
+                                            "country_code": "US"}, "years": [2026]}],
+         "last_known_institutions": []},
+    ]}
+    monkeypatch.setattr(identity, "_json", lambda url: data)
+    rows = identity.author_search("Wei Zhang", "https://ror.org/01mkqqe32")
+    assert len(rows) == 1 and rows[0]["id"] == "A1"
+    assert rows[0]["confidence"] == "高"
+    assert rows[0]["institutions"][0]["name"] == "Lanzhou University"
+
+
+def test_identity_works_corresponding_and_departments(monkeypatch) -> None:
+    data = {"results": [{
+        "id": "https://openalex.org/W1", "doi": "https://doi.org/10.1/x",
+        "title": "Grassland carbon", "publication_year": 2025, "type": "article",
+        "primary_location": {"source": {"display_name": "Journal"}},
+        "authorships": [{"author": {"id": "https://openalex.org/A1", "display_name": "Wei Zhang"},
+                         "author_position": "last", "is_corresponding": True,
+                         "raw_affiliation_strings": [
+                             "College of Pastoral Agriculture Science and Technology, Lanzhou University"]}],
+    }]}
+    monkeypatch.setattr(identity, "_json", lambda url: data)
+    out = identity.author_works("A1", "Wei Zhang", "Lanzhou University")
+    assert out["works"][0]["is_corresponding"]
+    assert any("Pastoral" in x["value"] for x in out["departments"])
+    assert "通讯作者" in out["representative_suggestion"]
+
+
+def test_identity_doi_check(monkeypatch) -> None:
+    def fake(url: str) -> dict:
+        if "crossref" in url:
+            return {"message": {"title": ["A paper"], "container-title": ["J"],
+                                "issued": {"date-parts": [[2025]]},
+                                "author": [{"given": "Wei", "family": "Zhang",
+                                            "ORCID": "https://orcid.org/0000-0001-0000-0001",
+                                            "affiliation": [{"name": "Lanzhou University"}]}]}}
+        return {"authorships": [{"author": {"display_name": "Wei Zhang"},
+                                  "raw_author_name": "Wei Zhang", "is_corresponding": True,
+                                  "institutions": [{"ror": "https://ror.org/01mkqqe32"}]}]}
+    monkeypatch.setattr(identity, "_json", fake)
+    out = identity.doi_check("10.1/x", "Wei Zhang", "Lanzhou University",
+                             "https://ror.org/01mkqqe32")
+    assert out["ok"] and out["confidence"] == "高"
+    assert out["corresponding"] == ["Wei Zhang"]
+    assert all(x["ok"] for x in out["checks"])
+

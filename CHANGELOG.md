@@ -3,6 +3,19 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.10.0] - 2026-11-23
+
+### Added
+- 新增 `identity.py`：ROR 机构检索、OpenAlex 作者候选与近作、Crossref/OpenAlex DOI 回查
+- 课题组新增“单位（机构）”与“院系/部门”两个字段；ROR 规范名、ORCID、DOI、置信度写入本机 `team.json`，并在开题报告可行性一节留下核验痕迹
+- 界面新增“检索核对单位与通讯作者”：姓名 + 单位即可出候选；选中单位后按 ROR 重查作者；选中作者后带出近作、`is_corresponding` 标记、院系写法与代表作候选
+- DOI 回查做四项一致性检查：DOI 可解析、姓名在作者列表、单位与署名一致、OpenAlex 标为通讯作者
+
+### Changed
+- 作者排序按姓名、ROR 近 5 年署名、ORCID 与作品量，不使用影响因子、h-index 或引用数
+- 单位与院系分开存储，报告里再拼成完整单位；老 `team.json` 的合并写法继续兼容
+- 通讯作者仍由申请人确认，低置信度不参与五维评分
+
 ## [0.9.0] - 2026-11-22
 
 ### Added
