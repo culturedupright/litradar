@@ -10,6 +10,7 @@
 - 课题组新增“单位（机构）”与“院系/部门”两个字段；ROR 规范名、ORCID、DOI、置信度写入本机 `team.json`，并在开题报告可行性一节留下核验痕迹
 - 界面新增“检索核对单位与通讯作者”：姓名 + 单位即可出候选；选中单位后按 ROR 重查作者；选中作者后带出近作、`is_corresponding` 标记、院系写法与代表作候选
 - DOI 回查做四项一致性检查：DOI 可解析、姓名在作者列表、单位与署名一致、OpenAlex 标为通讯作者
+- 新增 Windows 一键安装器 `LitRadar-Setup-0.10.0.exe`：内置独立引擎 EXE 与 DSH 插件，双击后自动写入 `desktop` / `web` profile 并创建开始菜单入口，不再要求用户先装 Python
 
 ### Changed
 - 作者排序按姓名、ROR 近 5 年署名、ORCID 与作品量，不使用影响因子、h-index 或引用数

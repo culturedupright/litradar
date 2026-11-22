@@ -57,8 +57,21 @@ function pythonPath() {
   return "python";
 }
 
+/** 安装器可以把引擎打成 litradar-engine.exe，装了它就不要求用户另装 Python。 */
+function engineExecutable() {
+  const candidates = [
+    process.env.LITRADAR_ENGINE_EXE,
+    config.engine_exe,
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return "";
+}
+
 const ENGINE = engineRoot();
 const PYTHON = pythonPath();
+const ENGINE_EXE = engineExecutable();
 const DATA_HOME =
   process.env.LITRADAR_HOME ??
   config.data ??
@@ -81,11 +94,14 @@ async function engineUp() {
 /** 拉起引擎；失败只记一行，不阻塞 DSH 启动。 */
 function startEngine(log) {
   try {
+    const args = ["serve", "--port", String(PORT)];
+    const command = ENGINE_EXE || PYTHON;
+    const commandArgs = ENGINE_EXE ? args : ["-m", "litradar", ...args];
     const child = spawn(
-      PYTHON,
-      ["-m", "litradar", "serve", "--port", String(PORT)],
+      command,
+      commandArgs,
       {
-        cwd: ENGINE,
+        cwd: ENGINE_EXE ? path.dirname(ENGINE_EXE) : ENGINE,
         windowsHide: true,
         stdio: ["ignore", "ignore", "ignore"],
         env: {

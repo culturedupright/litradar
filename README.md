@@ -128,7 +128,18 @@ LitRadar 把这几件事做成一条流水线，每条结论都要求带证据�
 
 ## 安装
 
-### 方式一：装成 DSH 插件（推荐）
+### 方式一：Windows 一键安装器（推荐）
+
+到 [Releases](../../releases) 下载 `LitRadar-Setup-0.10.0.exe`，双击即可：
+
+- 自动识别 `%USERPROFILE%\.dsh\profiles\desktop` 和 `web`；
+- 内置独立引擎 `litradar-engine.exe`，不要求用户先装 Python；
+- 写入 DSH 插件、`~/.litradar-suite/config.json` 和开始菜单快捷方式；
+- 完成后完全退出并重开 DeepSeek Harness，左侧栏「新会话」下面出现「题眼 LitRadar」。
+
+安装器未做代码签名，首次运行可能出现 Windows SmartScreen「未知发布者」提示，点“更多信息 → 仍要运行”即可。
+
+### 方式二：手动装成 DSH 插件
 
 到 [Releases](../../releases) 下载 `litradar-dsh-plugin-0.10.0.tgz`、`litradar-engine.zip`、`install.ps1`、`uninstall.ps1`，放同一目录，在 PowerShell 里：
 
@@ -139,7 +150,7 @@ LitRadar 把这几件事做成一条流水线，每条结论都要求带证据�
 
 细节见 [`packaging/安装与卸载.md`](packaging/安装与卸载.md)。装好后 DSH 左侧栏「新会话」下面有「题眼 LitRadar」。
 
-### 方式二：只在本机跑引擎（开发用）
+### 方式三：只在本机跑引擎（开发用）
 
 需要 Python 3.11+，运行时不装额外依赖（PyYAML 用于读 DSH 配置）。
 
