@@ -250,12 +250,25 @@ SOCIAL = Domain(
     framework="PMEP（Phenomenon–Mechanism–Evidence–Policy）",
     framework_hint=("把方向拆成四格：P 现象/问题、M 机制或解释、E 数据与识别策略、"
                     "P 政策/应用含义；填不出来的留空。"),
-    lexicon=(),
+    lexicon=(
+        "policy", "governance", "institution", "regulation", "market", "welfare",
+        "labor", "employment", "income", "inequality", "education", "survey",
+        "questionnaire", "panel", "longitudinal", "empirical", "econometric",
+        "regression", "identification", "qualitative", "interview", "case study",
+        "organization", "firm", "consumer", "pricing", "platform", "public policy",
+        "stakeholder", "mechanism", "reform", "shock", "outcome", "sample",
+        "政策", "制度", "治理", "监管", "市场", "福利", "劳动", "就业", "收入",
+        "不平等", "教育", "问卷", "调查", "面板", "计量", "回归", "识别", "质性",
+        "访谈", "案例", "组织", "企业", "消费者", "定价", "平台", "公共政策",
+        "利益相关者", "机制", "改革", "冲击", "效应",
+    ),
     card_fields=SOCIAL_FIELDS,
     card_labels=SOCIAL_LABELS,
     analyst_role="你是社会科学方向的课题分析师，按现象—机制—证据—政策归纳。",
-    min_score=0.0,
-    gate=False,
+    anti=("patients", "mice", "rats", "clinical trial", "in vitro", "cell line",
+          "gene expression", "盆栽", "温室", "田间", "小鼠", "患者", "临床试验"),
+    min_score=1.0,
+    gate=True,
 )
 
 HUMANITIES = Domain(
@@ -264,12 +277,23 @@ HUMANITIES = Domain(
     framework="TCIA（Text–Context–Interpretation–Archive）",
     framework_hint=("把方向拆成四格：T 文本/作品、C 语境、I 解释框架、A 史料/档案；"
                     "填不出来的留空。"),
-    lexicon=(),
+    lexicon=(
+        "text", "archive", "manuscript", "historical", "history", "narrative",
+        "discourse", "literary", "literature", "interpretation", "rhetoric",
+        "translation", "corpus", "edition", "museum", "heritage", "aesthetic",
+        "philosophy", "religion", "ethics", "art", "music", "film", "media",
+        "archaeology", "context", "genre", "author", "textual criticism",
+        "文本", "档案", "手稿", "史料", "历史", "叙事", "话语", "文学", "阐释",
+        "修辞", "翻译", "语料", "版本", "博物馆", "遗产", "审美", "哲学",
+        "宗教", "伦理", "艺术", "音乐", "电影", "媒介", "考古", "语境",
+    ),
     card_fields=HUMANITIES_FIELDS,
     card_labels=HUMANITIES_LABELS,
     analyst_role="你是人文与艺术方向的课题分析师，按文本—语境—阐释—史料归纳。",
-    min_score=0.0,
-    gate=False,
+    anti=("patients", "mice", "rats", "clinical trial", "in vitro", "cell line",
+          "盆栽", "温室", "田间", "小鼠", "患者", "临床试验"),
+    min_score=1.0,
+    gate=True,
 )
 
 GENERAL = Domain(

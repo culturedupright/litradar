@@ -37,10 +37,30 @@ def test_every_oecd_subfield_has_a_domain_profile() -> None:
 def test_new_domain_profiles_are_generic() -> None:
     assert by_key("engineering") is ENGINEERING
     assert ENGINEERING.framework.startswith("RDVM")
-    assert SOCIAL.gate is False and HUMANITIES.gate is False
+    assert SOCIAL.gate is True and HUMANITIES.gate is True
+    assert SOCIAL.min_score == 1.0 and HUMANITIES.min_score == 1.0
+    assert "policy" in SOCIAL.lexicon and "archive" in HUMANITIES.lexicon
     assert HUMANITIES.card_labels["system"] == "材料与文本"
     assert "盆栽" not in ENGINEERING.card_fields["design"]
     assert "文本" in HUMANITIES.card_fields["system"]
+
+
+def test_social_gate_rejects_biomed_paper() -> None:
+    verdict = judge(
+        "Single-cell RNA sequencing of mouse tumor microenvironment",
+        "patients and mice; clinical trial; gene expression; cell line",
+        SOCIAL, ["platform", "pricing", "regulation"],
+    )
+    assert not verdict.keep
+
+
+def test_humanities_gate_keeps_textual_study() -> None:
+    verdict = judge(
+        "Archival manuscripts and the rhetoric of early modern letters",
+        "archive; manuscript; historical context; textual criticism; edition",
+        HUMANITIES, ["archive", "rhetoric", "manuscript"],
+    )
+    assert verdict.keep
 def test_classify_falls_back_to_general() -> None:
     assert classify("某个我还没想清楚的方向") is GENERAL
 
