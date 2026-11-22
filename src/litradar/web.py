@@ -121,7 +121,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
 
 <div class="panel">
 <h2 class="sect">检索源与账号</h2>
-<p class="hint">WOS / Scopus 走机构订阅的 API Key，插件不保存账号密码；Key 存在本机用户目录，过期自动停用。</p>
+<p class="hint">按权威程度排序：一级索引（WOS、Scopus）→ 中文核心平台（CNKI、CSCD、CSSCI）→ 中文全文库（万方、维普）→ 专业文摘（PubMed、Europe PMC）→ 开放元数据（Crossref、OpenAlex、Semantic Scholar）→ 预印本（arXiv）。WOS/Scopus 填 API Key；CNKI 等走校园网/VPN，不保存账号密码。</p>
 <div id="sources"></div>
 <div id="credform" class="cred" style="display:none">
   <div class="credhead"><b id="credtitle"></b><button class="mini" id="credclose">收起</button></div>
@@ -132,7 +132,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
 
 <div class="panel">
 <h2 class="sect">课题组条件（基金评审五维 + 研究条件）</h2>
-<p class="hint">先填单位、通讯作者、人数、在研项目这些能核对的事实，插件按规则推算五维等级；要精确可逐项改下拉。不再用滑杆自评。</p>
+<p class="hint">先填单位、申请人身份、通讯作者、代表作、人数与在研项目；五维按固定判据推算，可逐项改档位。成果评价按 DORA 原则，以代表作与具体贡献为主。</p>
 <div class="grid" id="teamquick"></div>
 <div class="actions">
   <button class="mini" id="teamderive">按填写重新推算</button>
@@ -141,7 +141,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
 </div>
 <div id="teamdims" style="margin-top:14px"></div>
 <h3 class="sect" style="margin-top:16px">研究条件</h3>
-<p class="hint">原来单独放在首页的实验类型、经费、周期、湿实验，并到这里——它们本来就属于“接不接得住”，不属于方向本身。</p>
+<p class="hint">研究类型、数据来源、平台使用、经费与周期、伦理合规、报告规范和数据管理逐项核对；判据写进开题报告。</p>
 <div class="grid" id="teamcond"></div>
 <div class="actions"><span class="hint" id="teamscore"></span></div>
 </div>
@@ -194,18 +194,33 @@ function renderSources(list){
   const box=$("sources");box.innerHTML="";
   list.forEach(s=>{
     const row=document.createElement("div");row.className="src";
-    const cb=document.createElement("input");cb.type="checkbox";cb.id="src_"+s.source;
-    cb.checked=(s.source==="europepmc"||s.source==="pubmed"||s.source==="openalex");
+    if(s.direct){
+      const cb=document.createElement("input");cb.type="checkbox";cb.id="src_"+s.source;
+      cb.checked=["openalex","crossref","pubmed","europepmc"].includes(s.source);
+      row.append(cb);
+    }else{
+      const lock=document.createElement("span");lock.className="badge";lock.textContent="机构订阅";
+      row.append(lock);
+    }
     const name=document.createElement("span");name.className="name";name.textContent=s.label;
+    const tier=document.createElement("span");tier.className="badge";tier.textContent=s.tier||"";
     const badge=document.createElement("span");badge.className="badge";
-    if(s.free){badge.textContent="免登录";badge.classList.add("ok");}
+    if(s.access==="subscription"){badge.textContent="校园网/VPN";badge.classList.add("ok");}
+    else if(s.access==="open"){badge.textContent="免登录";badge.classList.add("ok");}
     else if(s.expired){badge.textContent="已过期，需重新配置";badge.classList.add("bad");}
     else if(s.configured){badge.textContent="已连接";badge.classList.add("ok");}
     else {badge.textContent="未配置";badge.classList.add("bad");}
-    const help=document.createElement("span");help.className="hint";help.textContent=s.help;
-    const btn=document.createElement("button");btn.className="mini";btn.textContent=s.free?"说明":"配置";
-    btn.onclick=()=>openCred(s);
-    row.append(cb,name,badge,help,btn);box.appendChild(row);
+    const help=document.createElement("span");help.className="hint";
+    help.textContent=(s.scope?("覆盖："+s.scope+"；"):"")+(s.help||"");
+    const btn=document.createElement("button");btn.className="mini";
+    btn.textContent=s.direct?(s.access==="open"?"说明":"配置"):"机构入口";
+    btn.onclick=()=>{
+      if(!s.direct&&s.url){window.open(s.url,"_blank","noopener");return;}
+      openCred(s);
+    };
+    const note=document.createElement("div");note.className="hint";note.style.width="100%";
+    note.textContent=s.note||"";
+    row.append(name,tier,badge,help,btn,note);box.appendChild(row);
   });
 }
 function openCred(s){
@@ -294,7 +309,14 @@ function renderTeam(){
     div.append(top,sel,crit,note);dims.appendChild(div);
   });
   const cond=$("teamcond");cond.innerHTML="";
+  let lastGroup="";
   (SCHEMA.conditions||[]).forEach(c=>{
+    if(c.group&&c.group!==lastGroup){
+      lastGroup=c.group;
+      const head=document.createElement("div");head.className="field full";
+      head.innerHTML='<label style="font-weight:600;color:var(--ink)">'+c.group+'</label>';
+      cond.appendChild(head);
+    }
     const wrap=document.createElement("div");wrap.className="field";
     const lab=document.createElement("label");lab.textContent=c.label;
     const sel=document.createElement("select");sel.id="cond_"+c.key;
@@ -476,7 +498,7 @@ $("run").onclick=()=>{
   $("log").innerHTML="";$("live").textContent="";liveBase=null;
   const sources=[].slice.call($("sources").querySelectorAll("input[type=checkbox]"))
     .filter(c=>c.checked).map(c=>c.id.replace("src_",""));
-  if(!sources.length){alert("至少勾一个检索源");return;}
+  if(!sources.length){alert("至少勾一个可直接检索的源；CNKI 等机构订阅源请在校园网/VPN 入口核对题录");$("run").disabled=false;return;}
   const cond=teamConditions();
   const payload={direction,domain_key:"auto",platform:cond.experiment,budget:cond.budget,period:cond.period,
     wet_lab:cond.wet,years:`${fy}-${ty}`,search_limit:+$("search").value,

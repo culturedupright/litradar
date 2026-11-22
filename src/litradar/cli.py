@@ -222,10 +222,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--card-limit", type=int, default=8)
     p_run.add_argument("--model", default="deepseek")
     p_run.add_argument("--domain", default="auto",
-                       choices=["auto", "materials", "agri", "biomed", "general"],
-                       help="学科判定：默认自动，可强制指定")
-    p_run.add_argument("--sources", default="europepmc",
-                       help="逗号分隔：europepmc,pubmed,openalex,wos,scopus")
+                       choices=["auto", "materials", "agri", "biomed", "engineering",
+                                "social", "humanities", "general"],
+                       help="领域档案：默认随 OECD 子类，可强制指定")
+    p_run.add_argument("--sources", default="openalex,crossref",
+                       help="逗号分隔：wos,scopus,pubmed,europepmc,crossref,openalex,"
+                            "semanticscholar,arxiv（CNKI 等机构订阅源不直连）")
     p_run.add_argument("--oecd", default="", help="OECD 子类代码，如 2.5")
     p_run.set_defaults(func=cmd_run)
     _add_db(p_run)

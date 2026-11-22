@@ -81,7 +81,7 @@ def build_markdown(direction: str, papers: list[dict], cards: list[dict],
 
     labels = dict(domain.card_labels or {})
     out += ["## 二、证据矩阵", "",
-            f"| PMCID | {labels.get('design', '设计')} | {labels.get('system', '系统')} | "
+            f"| 文献 ID | {labels.get('design', '设计')} | {labels.get('system', '系统')} | "
             f"{labels.get('factors', '处理')} | {labels.get('sample_size', 'n')} | "
             f"{labels.get('omics', '检测')} | {labels.get('conclusion', '结论')} |",
             "| --- | --- | --- | --- | --- | --- | --- |"]
@@ -95,7 +95,8 @@ def build_markdown(direction: str, papers: list[dict], cards: list[dict],
 
     out += ["## 三、单篇卡片", ""]
     for card in cards:
-        out += [f"### {card.get('pmcid', '')} · {card.get('title', '')}", ""]
+        scope = "（摘要级，未核字段以“待核”为准）" if card.get("evidence_scope") == "摘要级" else ""
+        out += [f"### {card.get('pmcid', '')} · {card.get('title', '')}{scope}", ""]
         labels = domain.card_labels or {}
         for key in ("design", "system", "factors", "controls", "sample_size",
                     "omics", "outcomes", "conclusion", "limitations"):

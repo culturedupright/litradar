@@ -17,8 +17,8 @@ from .relevance import audit as audit_retrieval
 from .relevance import judge, relax_query, topic_terms
 from .report import write_markdown
 from .sources import search_all
-from .store import (connect, figures_for, get_cards, get_fulltext,
-                    pending_cards, pending_fulltexts, save_card,
+from .store import (connect, figures_for, get_cards, get_fulltext, get_paper,
+                    pending_abstracts, pending_cards, pending_fulltexts, save_card,
                     save_fulltext, save_report, set_gate, to_csv, upsert)
 
 Progress = Callable[[str, str, int], None]
@@ -162,7 +162,9 @@ def run_pipeline(direction: str, *, platform: str = "不限", budget: str = "不
             _n(note, f"检索：已收 {added} 条（同域 {added - dropped}，挡掉 {dropped}）")
     conn.commit()
 
-    run_ids = {d["pmcid"] for d in decisions if d["keep"] and d["pmcid"].startswith("PMC")}
+    kept_ids = {d["id"] for d in decisions if d["keep"]}
+    pmc_ids = {d["pmcid"] for d in decisions if d["keep"] and d["pmcid"].startswith("PMC")}
+    run_ids = kept_ids | pmc_ids
 
     audit = audit_retrieval(domain, terms, decisions)
     audit["sources"] = source_stats
@@ -204,7 +206,7 @@ def run_pipeline(direction: str, *, platform: str = "不限", budget: str = "不
                 "tokens": tokens, "domain": domain.key, "audit": audit,
                 "sources": source_stats}
 
-    targets = pending_fulltexts(conn, fetch_limit, run_ids)
+    targets = pending_fulltexts(conn, fetch_limit, pmc_ids)
     fetched = 0
     for index, (pmcid, _title) in enumerate(targets, start=1):
         _step(progress, "抓全文", f"{pmcid}（{index}/{len(targets)}）", 20 + int(18 * index / max(1, len(targets))))
@@ -252,6 +254,34 @@ def run_pipeline(direction: str, *, platform: str = "不限", budget: str = "不
             conn.commit()
             _n(note, f"× {pmcid} 卡片失败：{str(exc)[:80]}")
     _step(progress, "抽卡片", f"新增 {new_cards} 张卡片", 70)
+
+    # 没有 PMC 全文的方向（社科、人文、工程、中文库）用摘要做卡片，字段一律按“待核”约束。
+    current_cards = [c for c in get_cards(conn) if c["pmcid"] in run_ids]
+    remaining = max(0, card_limit - len(current_cards))
+    abstract_todo = pending_abstracts(conn, remaining, kept_ids)
+    abstract_cards = 0
+    for index, paper_id in enumerate(abstract_todo, start=1):
+        info = get_paper(conn, paper_id)
+        if not info or not info.get("abstract"):
+            continue
+        _step(progress, "抽卡片", f"摘要级 {index}/{len(abstract_todo)}", 70 + int(8 * index / max(1, len(abstract_todo))))
+        _n(note, f"摘要卡片 {paper_id}：{info['title'][:48]}｜无 PMC 全文，按摘要抽取")
+        try:
+            card = make_card(info["title"], info["journal"], info["year"], [],
+                             info["abstract"], model_name=model_name, domain=domain)
+            data = {**card.data, "title": info["title"], "evidence_scope": "摘要级"}
+            save_card(conn, paper_id, data, model_name,
+                      card.usage.prompt_tokens, card.usage.completion_tokens)
+            conn.commit()
+            tokens += card.usage.total_tokens
+            abstract_cards += 1
+            _n(note, f"✓ {paper_id} 摘要级卡片完成（累计 {new_cards + abstract_cards} 张）")
+        except Exception as exc:  # noqa: BLE001
+            save_card(conn, paper_id, {"error": str(exc)}, model_name, status="error", error=str(exc))
+            conn.commit()
+            _n(note, f"× {paper_id} 摘要级卡片失败：{str(exc)[:80]}")
+    if abstract_cards:
+        _step(progress, "抽卡片", f"全文 {new_cards} 张 / 摘要级 {abstract_cards} 张", 78)
 
     all_cards = [c for c in get_cards(conn) if c["pmcid"] in run_ids]
     if not all_cards:

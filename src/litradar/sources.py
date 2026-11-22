@@ -1,11 +1,13 @@
-"""多检索源：Europe PMC / PubMed / OpenAlex / Web of Science / Scopus。
+"""多检索源：按权威程度排序，能直连的直连，机构订阅的只给入口。
 
-每个源都返回统一的 Paper；能拿到全文的只有 PMC 系，其余源负责把“同领域的文献”
-先召回，再交给相关性闸门筛。WOS / Scopus 需要使用者自己的 API Key（机构订阅，
-不共享账号密码），凭据由 credentials 管理。
+一级索引 WOS / Scopus 需要机构 API Key；中文核心平台 CNKI / CSCD / CSSCI /
+万方 / 维普 走校园网或 VPN，不提供公开检索 API，也不在后台模拟登录；
+开放元数据 Crossref / OpenAlex / Semantic Scholar 与预印本 arXiv 可直接检索。
+每个源都返回统一的 Paper；能稳定拿到全文的仍只有 PMC 系与 OA 链接。
 """
 from __future__ import annotations
 
+import html
 import json
 import re
 import time
@@ -20,13 +22,7 @@ from .europepmc import iter_papers
 from .models import Paper, clean_text
 from .net import make_opener
 
-LABELS = {
-    "europepmc": "Europe PMC",
-    "pubmed": "PubMed",
-    "openalex": "OpenAlex",
-    "wos": "Web of Science",
-    "scopus": "Scopus",
-}
+LABELS = {key: spec["label"] for key, spec in credentials.SPECS.items()}
 
 _TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9\-]{2,}")
 
@@ -259,34 +255,157 @@ def _scopus(query: str, keywords: list[str], years: str, limit: int) -> list[Pap
     return out
 
 
+# ------------------------------------------------------------------- Crossref
+def _crossref(query: str, keywords: list[str], years: str, limit: int) -> list[Paper]:
+    terms = keywords or tokens(query)
+    start, end = _year_clause(years)
+    params = {
+        "query.bibliographic": " ".join(terms),
+        "rows": min(limit, 50),
+        "select": "DOI,title,abstract,container-title,issued,published-print,"
+                  "published-online,author,is-referenced-by-count,type",
+        "sort": "relevance",
+    }
+    filters = []
+    if start:
+        filters.append(f"from-pub-date:{start}-01-01")
+    if end:
+        filters.append(f"until-pub-date:{end}-12-31")
+    if filters:
+        params["filter"] = ",".join(filters)
+    cred = credentials.active("crossref") or {}
+    if cred.get("email"):
+        params["mailto"] = cred["email"]
+    data = _get_json("https://api.crossref.org/works?" + urllib.parse.urlencode(params))
+    items = ((data.get("message") or {}).get("items") or [])
+    out: list[Paper] = []
+    for item in items[:limit]:
+        title = " ".join(item.get("title") or [])
+        abstract = re.sub(r"<[^>]+>", " ", str(item.get("abstract") or ""))
+        year = _crossref_year(item)
+        authors = ", ".join(
+            (a.get("family") or a.get("name") or "") for a in (item.get("author") or [])[:6]
+        ).strip(", ")
+        out.append(Paper(
+            id=str(item.get("DOI") or ""), source="crossref", doi=str(item.get("DOI") or ""),
+            title=clean_text(html.unescape(title)), abstract=clean_text(html.unescape(abstract)),
+            year=year, journal=" ".join(item.get("container-title") or []),
+            authors=authors, cited_by=int(item.get("is-referenced-by-count") or 0),
+        ))
+    return out
+
+
+def _crossref_year(item: dict) -> int | None:
+    for key in ("published-print", "published-online", "issued"):
+        parts = ((item.get(key) or {}).get("date-parts") or [[None]])[0]
+        if parts and str(parts[0]).isdigit():
+            return int(parts[0])
+    return None
+
+
+# ---------------------------------------------------------- Semantic Scholar
+def _semanticscholar(query: str, keywords: list[str], years: str, limit: int) -> list[Paper]:
+    terms = keywords or tokens(query)
+    fields = ("title,abstract,year,venue,externalIds,citationCount,openAccessPdf,authors")
+    params = {"query": " ".join(terms), "limit": min(limit, 50), "fields": fields}
+    start, end = _year_clause(years)
+    headers = {}
+    cred = credentials.active("semanticscholar") or {}
+    if cred.get("api_key"):
+        headers["x-api-key"] = cred["api_key"]
+    data = _get_json("https://api.semanticscholar.org/graph/v1/paper/search?"
+                     + urllib.parse.urlencode(params), headers=headers)
+    out: list[Paper] = []
+    for item in (data.get("data") or [])[:limit]:
+        year = item.get("year")
+        if start and end and isinstance(year, int) and not start <= year <= end:
+            continue
+        ids = item.get("externalIds") or {}
+        authors = ", ".join((a.get("name") or "") for a in (item.get("authors") or [])[:6])
+        out.append(Paper(
+            id=str(item.get("paperId") or ids.get("DOI") or ""),
+            source="semanticscholar", doi=str(ids.get("DOI") or ""),
+            pmid=str(ids.get("PubMed") or ""),
+            title=clean_text(str(item.get("title") or "")),
+            abstract=clean_text(str(item.get("abstract") or "")),
+            year=year if isinstance(year, int) else None,
+            journal=str(item.get("venue") or ""), authors=authors,
+            is_oa=bool(item.get("openAccessPdf")),
+            cited_by=int(item.get("citationCount") or 0),
+        ))
+    return out
+
+
+# --------------------------------------------------------------------- arXiv
+ARXIV_NS = {"a": "http://www.w3.org/2005/Atom", "arxiv": "http://arxiv.org/schemas/atom"}
+
+
+def _arxiv(query: str, keywords: list[str], years: str, limit: int) -> list[Paper]:
+    terms = keywords or tokens(query)
+    start, end = _year_clause(years)
+    search = " AND ".join(f'all:"{t}"' for t in terms[:8])
+    params = {"search_query": search, "start": 0, "max_results": min(limit, 50),
+              "sortBy": "relevance", "sortOrder": "descending"}
+    xml = _request("http://export.arxiv.org/api/query?" + urllib.parse.urlencode(params),
+                   headers={"Accept": "application/atom+xml"}).decode("utf-8", errors="replace")
+    try:
+        root = ET.fromstring(xml)
+    except ET.ParseError:
+        return []
+    out: list[Paper] = []
+    for entry in root.findall("a:entry", ARXIV_NS):
+        title = " ".join((entry.findtext("a:title", "", ARXIV_NS) or "").split())
+        abstract = " ".join((entry.findtext("a:summary", "", ARXIV_NS) or "").split())
+        published = entry.findtext("a:published", "", ARXIV_NS) or ""
+        year = int(published[:4]) if published[:4].isdigit() else None
+        if start and end and isinstance(year, int) and not start <= year <= end:
+            continue
+        authors = ", ".join(
+            (a.findtext("a:name", "", ARXIV_NS) or "") for a in entry.findall("a:author", ARXIV_NS)[:6]
+        )
+        link = entry.findtext("a:id", "", ARXIV_NS) or ""
+        doi = entry.findtext("arxiv:doi", "", ARXIV_NS) or ""
+        out.append(Paper(
+            id=link.rsplit("/", 1)[-1], source="arxiv", doi=doi,
+            title=clean_text(title), abstract=clean_text(abstract), year=year,
+            journal="arXiv (preprint)", authors=authors, is_oa=True,
+        ))
+    return out
+
+
 BACKENDS = {
     "europepmc": _europepmc,
     "pubmed": _pubmed,
     "openalex": _openalex,
     "wos": _wos,
     "scopus": _scopus,
+    "crossref": _crossref,
+    "semanticscholar": _semanticscholar,
+    "arxiv": _arxiv,
 }
+
 
 
 def search_all(query: str, keywords: list[str], years: str, limit: int,
                sources: Iterable[str], oecd_code: str = "",
                rate: float = REQUEST_INTERVAL) -> tuple[list[Paper], list[dict]]:
     """逐源检索、合并去重；返回文献与逐源体检（供界面与简报展示）。"""
-    chosen = [s for s in sources if s in BACKENDS] or ["europepmc"]
+    chosen = [s for s in sources if s in BACKENDS] or ["openalex"]
     quota = max(5, int(limit / max(1, len(chosen))) + 1)
     stats: list[dict] = []
     merged: dict[str, Paper] = {}
 
     for source in chosen:
-        label = LABELS[source]
+        label = LABELS.get(source, source)
+        tier = credentials.SPECS.get(source, {}).get("tier", "")
         try:
             found = BACKENDS[source](query, keywords, years, quota)
         except Exception as exc:  # noqa: BLE001 - 单源失败不影响其它源
-            stats.append({"source": source, "label": label, "ok": False,
-                          "count": 0, "error": _auth_hint(exc)})
+            stats.append({"source": source, "label": label, "tier": tier,
+                          "ok": False, "count": 0, "error": _auth_hint(exc)})
             continue
-        stats.append({"source": source, "label": label, "ok": True,
-                      "count": len(found), "error": ""})
+        stats.append({"source": source, "label": label, "tier": tier,
+                      "ok": True, "count": len(found), "error": ""})
         for paper in found:
             key = (paper.doi or "").lower() or (paper.pmid and f"pmid:{paper.pmid}") or \
                   re.sub(r"\W+", "", (paper.title or "").lower())[:80] or paper.id

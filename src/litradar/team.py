@@ -1,15 +1,15 @@
-"""课题组条件：按基金评审常用的五个维度做条件核对，并把实验类型/经费/周期并进来。
+"""课题组与研究条件：按基金评审常用的五个维度核对条件，并把研究类型、资源、规范并进来。
 
-为什么不用滑杆：
-- 滑杆让使用者自己定义“3 级”是什么，同一个人两次打分都可能不一致；
-- 评审专家看的是可核对的事实（通讯作者层级、平台层级、在研项目），不是感觉。
+界面走“可核对事实 → 规则推算 → 带判据档位”三段：单位、申请人身份、通讯作者、代表作、
+课题组规模、在研项目这些事实先填，五维等级由固定规则推算；需要更贴实际时逐项改档位。
+每档写死判据，报告里原样引用，避免自评变成拍脑袋。
 
-所以界面默认走“快速填写”：填单位、申请人身份、通讯作者与职称、课题组人数、在研项目、
-单位平台层级，由规则推算出五维等级，再允许逐项改成更贴近实际的下拉档位。
-每档都写死判据（criteria），报告里原样引用，避免自评变成拍脑袋。
-
-五维与权重参考国家自然科学基金/国家重点研发计划通讯评议常用的
-“负责人学术水平—研究平台—前期基础—队伍组成—经费保障”结构，权重可按本单位口径调整。
+五维结构参考国家自然科学基金/国家重点研发计划通讯评议常用的
+“负责人学术水平—研究平台—前期基础—队伍组成—经费保障”，权重可按本单位口径调整。
+成果评价采用 DORA（San Francisco Declaration on Research Assessment）原则：
+以代表作、具体贡献与研究质量为主，不把期刊影响因子、h-index、引用数当作单个替代指标。
+研究规范按研究类型选择：动物实验 ARRIVE 2.0、临床试验 CONSORT、系统综述 PRISMA、
+观察性研究 STROBE、预测模型 TRIPOD；数据管理按 FAIR 原则与数据管理计划（DMP）。
 """
 from __future__ import annotations
 
@@ -27,25 +27,40 @@ GROUP_SIZES = ["1 人", "2–3 人", "4–8 人", "9 人以上", "完整梯队�
 PROJECTS = ["无在研项目", "校级/院级项目", "省部级项目", "国家级项目", "国家级重大/重点项目"]
 
 CONDITIONS: tuple[dict, ...] = (
-    {"key": "experiment", "label": "实验类型",
-     "options": ["湿实验为主", "干实验为主", "干湿结合", "理论仿真与建模"]},
-    {"key": "budget", "label": "可支配经费量级",
+    {"key": "experiment", "label": "研究类型", "group": "研究方式",
+     "options": ["理论/计算研究", "湿实验", "干湿结合", "临床/人群研究",
+                 "田野调查/社会调查", "文本/档案/历史研究"]},
+    {"key": "data_source", "label": "数据来源", "group": "研究方式",
+     "options": ["自建一手数据", "共享数据库", "公开数据", "多源整合", "待定"]},
+    {"key": "platform_access", "label": "平台使用方式", "group": "资源与周期",
+     "options": ["自有设备/平台", "校内共享平台", "校外合作/外协", "纯计算资源"]},
+    {"key": "budget", "label": "可支配经费量级", "group": "资源与周期",
      "options": ["5 万以内", "5–20 万", "20–100 万", "100 万以上"]},
-    {"key": "period", "label": "可投入周期",
+    {"key": "period", "label": "可投入周期", "group": "资源与周期",
      "options": ["3 个月", "6 个月", "1 年", "2 年以上"]},
-    {"key": "wet", "label": "湿实验条件",
+    {"key": "wet", "label": "湿实验条件", "group": "资源与周期",
      "options": ["具备湿实验条件", "需外协或合作", "不做湿实验"]},
+    {"key": "ethics", "label": "伦理与合规", "group": "规范与合规",
+     "options": ["已获伦理批件", "在办", "需生物安全备案", "不适用"]},
+    {"key": "reporting", "label": "报告规范", "group": "规范与合规",
+     "options": ["ARRIVE 2.0（动物实验）", "CONSORT（随机试验）", "PRISMA（系统综述）",
+                 "STROBE（观察性研究）", "TRIPOD（预测模型）", "不适用"]},
+    {"key": "data_policy", "label": "数据管理", "group": "规范与合规",
+     "options": ["FAIR + 数据管理计划", "仅内部归档", "待定"]},
+    {"key": "assessment", "label": "成果评价口径", "group": "成果评价",
+     "options": ["DORA 原则（代表作/质量/贡献）", "单位职称评审口径",
+                 "项目验收口径", "未指定"]},
 )
 
 DIMENSIONS: tuple[dict, ...] = (
     {"key": "pi", "label": "负责人学术水平", "label_en": "PI academic standing", "weight": 0.30,
-     "hint": "看通讯作者论文与代表作层级，不看头衔数量",
+     "hint": "看代表作与具体贡献，不以期刊影响因子、h-index 或数量代替质量",
      "options": [
-         {"level": 1, "label": "无相关通讯作者论文", "criteria": "仅有参与作者论文"},
-         {"level": 2, "label": "普通期刊通讯作者", "criteria": "有同领域常规期刊通讯论文"},
-         {"level": 3, "label": "领域主流期刊通讯作者", "criteria": "有领域主流期刊通讯论文，h 指数中等"},
-         {"level": 4, "label": "领域顶刊/高被引通讯作者", "criteria": "有顶刊或高被引通讯论文"},
-         {"level": 5, "label": "国家级人才/领域领军", "criteria": "多篇顶刊通讯，主持国家级重大项目"},
+         {"level": 1, "label": "无独立通讯作者成果", "criteria": "仅有参与作者论文，代表作尚不能说明独立贡献"},
+         {"level": 2, "label": "有通讯作者成果", "criteria": "有通讯作者论文，代表作可逐篇说明作者位次与贡献"},
+         {"level": 3, "label": "代表作质量稳定", "criteria": "代表作经同行认可，方法、数据或理论贡献可核验"},
+         {"level": 4, "label": "代表作被同行采用", "criteria": "代表作被复现、采纳、写入指南/教材，或获领域奖励"},
+         {"level": 5, "label": "持续高质量产出与引领", "criteria": "多篇代表作形成连续贡献，参与领域标准/共同体建设"},
      ]},
     {"key": "platform", "label": "研究平台与条件", "label_en": "Platform and facilities", "weight": 0.20,
      "hint": "关键设备能不能自持，决定要不要外协",
@@ -99,9 +114,14 @@ PROJECT_LEVEL = {"无在研项目": 1, "校级/院级项目": 2, "省部级项�
 
 DEFAULTS_IDENTITY = {"unit": "", "role": "博士生", "org": "省部级重点实验室/平台",
                      "author": "", "author_title": "教授/正高",
+                     "representative": "", "open_science": "部分开放",
                      "group_size": "4–8 人", "project": "省部级项目"}
-DEFAULTS_CONDITIONS = {"experiment": "干湿结合", "budget": "5–20 万",
-                       "period": "1 年", "wet": "具备湿实验条件"}
+DEFAULTS_CONDITIONS = {"experiment": "干湿结合", "data_source": "共享数据库",
+                       "platform_access": "校内共享平台", "budget": "5–20 万",
+                       "period": "1 年", "wet": "具备湿实验条件",
+                       "ethics": "不适用", "reporting": "不适用",
+                       "data_policy": "FAIR + 数据管理计划",
+                       "assessment": "DORA 原则（代表作/质量/贡献）"}
 
 
 def _level_in(key: str, value: object, default: int = 3) -> int:
@@ -229,10 +249,15 @@ def schema() -> dict:
             {"key": "author", "label": "通讯作者", "type": "text", "placeholder": "姓名"},
             {"key": "author_title", "label": "通讯作者职称/层级", "type": "select",
              "options": AUTHOR_TITLES},
+            {"key": "representative", "label": "代表作与贡献", "type": "text",
+             "placeholder": "例：3 篇代表作，注明作者位次与个人贡献"},
+            {"key": "open_science", "label": "开放科学实践", "type": "select",
+             "options": ["数据与代码开放", "部分开放", "仅论文", "待定"]},
             {"key": "group_size", "label": "课题组人数", "type": "select", "options": GROUP_SIZES},
             {"key": "project", "label": "在研项目层级", "type": "select", "options": PROJECTS},
         ],
-        "conditions": [{"key": c["key"], "label": c["label"], "options": c["options"]}
+        "conditions": [{"key": c["key"], "label": c["label"], "group": c.get("group", ""),
+                        "options": c["options"]}
                        for c in CONDITIONS],
         "dimensions": [{"key": d["key"], "label": d["label"], "label_en": d["label_en"],
                         "weight": d["weight"], "hint": d["hint"],
@@ -245,12 +270,14 @@ def schema() -> dict:
 def markdown_block(profile: dict | None = None) -> list[str]:
     result = evaluate(profile)
     identity = result["identity"]
-    lines = ["### 课题组条件自评", "",
+    lines = ["### 课题组条件与可行性", "",
              f"- 综合得分：**{result['score']} / 5**（{result['band']}）——{result['advice']}",
              f"- 单位：{identity.get('unit') or '待申请人补充'}；"
              f"申请人身份：{identity.get('role')}；"
              f"通讯作者：{(identity.get('author') or '待补')}（{identity.get('author_title')}）；"
              f"课题组规模：{identity.get('group_size')}；在研项目：{identity.get('project')}",
+             f"- 代表作与贡献：{identity.get('representative') or '待申请人按代表作逐篇说明'}；"
+             f"开放科学实践：{identity.get('open_science')}",
              "- 五维评级（1–5 级；权重按通讯评议常用结构，可按本单位口径调整）：", "",
              "| 维度 | 权重 | 评级 | 档位判据 | 来源 |", "| --- | --- | --- | --- | --- |"]
     for row in result["rows"]:
@@ -258,12 +285,19 @@ def markdown_block(profile: dict | None = None) -> list[str]:
         lines.append(f"| {row['label']} | {row['weight']:.2f} | {row['level']} | "
                      f"{row['option']}（{row['criteria']}） | {origin} |")
     cond = result["conditions"]
-    lines += ["", "研究条件（用于判断方案规模）：", "",
-              "| 条件 | 取值 |", "| --- | --- |"]
+    lines += ["", "### 研究条件与规范", "",
+              "| 类别 | 条件 | 取值 |", "| --- | --- | --- |"]
     for spec in CONDITIONS:
-        lines.append(f"| {spec['label']} | {cond.get(spec['key'], '')} |")
+        lines.append(f"| {spec.get('group', '')} | {spec['label']} | {cond.get(spec['key'], '')} |")
+    lines += ["",
+              "- 成果评价口径：DORA 原则——以代表作、具体贡献与研究质量为主，"
+              "不把期刊影响因子、h-index、引用数当作单个替代指标。",
+              "- 报告规范：动物实验 ARRIVE 2.0；随机试验 CONSORT；系统综述 PRISMA；"
+              "观察性研究 STROBE；预测模型 TRIPOD；不适用的写“不适用”。",
+              "- 数据管理：按 FAIR 原则归档，并在方案中给出数据管理计划（DMP）；"
+              "受试者数据、动物伦理与生物安全按本单位规定审批。"]
     if result["gaps"]:
         lines += ["", f"- 短板：{'、'.join(result['gaps'])}。"
                       "方案里要写明补法（合作、共享平台、缩小目标或分期实施）。"]
-    lines += ["", "> 自评只用于判断选题是否匹配现有条件，不代表同行评议结论。"]
+    lines += ["", "> 以上只用于判断选题与现有条件是否匹配，不替代同行评议结论。"]
     return lines

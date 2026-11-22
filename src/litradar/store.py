@@ -233,6 +233,50 @@ def get_fulltext(conn: sqlite3.Connection, pmcid: str) -> dict | None:
     return dict(zip(keys, row))
 
 
+def get_paper(conn: sqlite3.Connection, paper_id: str) -> dict | None:
+    row = conn.execute(
+        """SELECT id, source, pmid, pmcid, doi, title, abstract, year, journal,
+                  authors, is_oa, cited_by
+           FROM papers WHERE id=?""",
+        (paper_id,),
+    ).fetchone()
+    if not row:
+        return None
+    keys = ("id", "source", "pmid", "pmcid", "doi", "title", "abstract", "year",
+            "journal", "authors", "is_oa", "cited_by")
+    return dict(zip(keys, row))
+
+
+def pending_abstracts(conn: sqlite3.Connection, limit: int = 20,
+                      allowed: set[str] | None = None) -> list[str]:
+    """挑出没有可用全文、但有摘要的同域文献，做摘要级卡片。
+
+    非生医库（Crossref / OpenAlex / Scopus / 中文库）多数没有 PMC 全文，
+    不能让整轮停在“0 张卡片”；摘要级卡片的每个字段都按“待核”约束。
+    """
+    if allowed is None:
+        clause, params = "", []
+    elif not allowed:
+        return []
+    else:
+        marks = ",".join("?" for _ in allowed)
+        clause, params = f" AND p.id IN ({marks})", list(allowed)
+    sql = """
+        SELECT p.id
+        FROM papers p
+        LEFT JOIN cards c ON c.pmcid = p.id
+        LEFT JOIN fulltext f ON f.pmcid = p.pmcid AND f.status = 'ok'
+        WHERE COALESCE(p.gate, 'pass') <> 'drop'
+          AND COALESCE(p.abstract, '') <> ''
+          AND c.pmcid IS NULL
+          AND f.pmcid IS NULL
+    """ + clause + """
+        ORDER BY p.relevance DESC, p.cited_by DESC
+        LIMIT ?
+    """
+    return [row[0] for row in conn.execute(sql, [*params, int(limit)]).fetchall()]
+
+
 def save_card(conn: sqlite3.Connection, pmcid: str, data: dict, model: str,
               tokens_in: int = 0, tokens_out: int = 0,
               status: str = "ok", error: str = "") -> None:

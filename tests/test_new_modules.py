@@ -4,7 +4,8 @@ from pathlib import Path
 
 from litradar import credentials, oecd, proposal, team
 from litradar.models import Paper
-from litradar.sources import _inverted, _merge, _parse_pubmed, tokens
+from litradar import sources as source_module
+from litradar.sources import _crossref_year, _inverted, _merge, _parse_pubmed, search_all, tokens
 
 AUDIT = {"framework": "PSPP", "candidates": 20, "kept": 12, "dropped": 8,
          "threshold": 1.5, "top_journals": [{"journal": "Nature", "count": 3}],
@@ -109,3 +110,38 @@ def test_merge_prefers_richer_record() -> None:
     _merge(a, b)
     assert a.pmcid == "PMC1" and a.abstract == "long" and a.is_oa
     assert a.source == "openalex+pubmed"
+
+
+def test_source_catalog_is_ordered_by_authority() -> None:
+    rows = credentials.all_status()
+    keys = [row["source"] for row in rows]
+    assert keys[:3] == ["wos", "scopus", "cnki"]
+    assert keys.index("wanfang") < keys.index("pubmed")
+    assert keys.index("pubmed") < keys.index("openalex") < keys.index("arxiv")
+    assert credentials.status("cnki")["direct"] is False
+    assert credentials.status("cnki")["access"] == "subscription"
+    assert "校园网" in credentials.status("cnki")["help"]
+
+
+def test_crossref_year_falls_back() -> None:
+    assert _crossref_year({"published-print": {"date-parts": [[2021, 5]]}}) == 2021
+    assert _crossref_year({"issued": {"date-parts": [[2023]]}}) == 2023
+    assert _crossref_year({}) is None
+
+
+def test_search_all_keeps_source_tier(monkeypatch) -> None:
+    monkeypatch.setitem(source_module.BACKENDS, "crossref",
+                        lambda q, k, y, n: [Paper(id="10/x", source="crossref", title="T")])
+    papers, stats = search_all("test", [], "2020-2024", 5, ["crossref"])
+    assert papers and stats[0]["ok"] and stats[0]["tier"] == "开放元数据"
+
+
+def test_team_has_dora_and_reporting_standards() -> None:
+    profile = team.defaults()
+    assert profile["conditions"]["assessment"].startswith("DORA")
+    assert profile["conditions"]["reporting"] == "不适用"
+    schema = team.schema()
+    keys = [c["key"] for c in schema["conditions"]]
+    assert "ethics" in keys and "data_policy" in keys and "reporting" in keys
+    md = "\n".join(team.markdown_block(profile))
+    assert "DORA" in md and "ARRIVE" in md and "FAIR" in md

@@ -80,7 +80,7 @@ def build(direction: str, summary: dict, cards: list[dict], audit: dict | None,
     lines += [f"# {direction}：开题报告", ""]
     lines += [f"**学科分类（OECD）**：{field or '未指定'}　　"
               f"**归纳口径**：{audit.get('framework', '') or '未判定'}", ""]
-    lines += [f"**申请人**：{owner or '（待填）'}　　**实验类型**：{platform}　　"
+    lines += [f"**申请人**：{owner or '（待填）'}　　**研究类型**：{platform}　　"
               f"**经费量级**：{budget}　　**周期**：{period}", ""]
     lines += ["---", ""]
 
@@ -160,7 +160,7 @@ def build(direction: str, summary: dict, cards: list[dict], audit: dict | None,
                          f"复刻要点：{pattern.get('how_to_replicate', '')}")
     else:
         lines.append("- 暂无可复刻的图表套路，需补充方法学文献。")
-    lines += ["", f"平台与条件约束：实验类型 {platform}，经费 {budget}，周期 {period}，"
+    lines += ["", f"平台与条件约束：研究类型 {platform}，经费 {budget}，周期 {period}，"
                  f"湿实验 {wet_lab}。超出条件的步骤在 4.3 写替代方案。"]
 
     # 五、创新点
@@ -197,7 +197,7 @@ def build(direction: str, summary: dict, cards: list[dict], audit: dict | None,
 
     # 附录
     lines += ["", "---", "", "# 附录 A　证据矩阵", ""]
-    lines += ["| PMCID | 设计 | 体系 | 处理/工艺 | n | 检测 | 结论 |",
+    lines += ["| 文献 ID | 设计 | 体系 | 处理/工艺 | n | 检测 | 结论 |",
               "| --- | --- | --- | --- | --- | --- | --- |"]
     for card in cards:
         cells = [card.get("pmcid", ""), card.get("design", ""), card.get("system", ""),
