@@ -1,11 +1,16 @@
-"""课题组与研究条件：按基金评审常用的五个维度核对条件，并把研究类型、资源、规范并进来。
+"""研究群与研究条件：按正式组织单元核对条件，并把研究类型、资源、规范并进来。
 
-界面走“可核对事实 → 规则推算 → 带判据档位”三段：单位、申请人身份、通讯作者、代表作、
-课题组规模、在研项目这些事实先填，五维等级由固定规则推算；需要更贴实际时逐项改档位。
+界面走“可核对事实 → 规则推算 → 带判据档位”三段：单位、院系、研究群、申请人身份、
+研究群规模、在研项目这些事实先填，五维等级由固定规则推算；需要更贴实际时逐项改档位。
 每档写死判据，报告里原样引用，避免自评变成拍脑袋。
 
+身份口径按“机构 ROR + 本地组织树 + 研究群节点”：
+- 单位用 ROR；
+- 院系、研究所、中心由学院官网的机构设置页维护；
+- 课题组/研究组只作为研究群下的可选下钻，不按姓名或论文数反推职称。
+
 五维结构参考国家自然科学基金/国家重点研发计划通讯评议常用的
-“负责人学术水平—研究平台—前期基础—队伍组成—经费保障”，权重可按本单位口径调整。
+“研究群学术水平—研究平台—前期基础—队伍组成—经费保障”，权重可按本单位口径调整。
 成果评价采用 DORA（San Francisco Declaration on Research Assessment）原则：
 以代表作、具体贡献与研究质量为主，不把期刊影响因子、h-index、引用数当作单个替代指标。
 研究规范按研究类型选择：动物实验 ARRIVE 2.0、临床试验 CONSORT、系统综述 PRISMA、
@@ -15,16 +20,14 @@ from __future__ import annotations
 
 import json
 import re
-import time
 from pathlib import Path
 
 from .config import HOME
 
 PATH = Path(HOME / "team.json")
 
-ROLES = ["本科生", "硕士生", "博士生", "博士后", "青年教师", "课题负责人（PI）"]
+ROLES = ["本科生", "硕士生", "博士生", "博士后", "青年教师", "研究群负责人（PI）"]
 ORGS = ["普通高校院系", "省部级重点实验室/平台", "国家级平台/重点实验室", "全国重点实验室"]
-AUTHOR_TITLES = ["无通讯作者论文", "讲师/中级", "副教授/副高", "教授/正高", "国家级人才/领域领军"]
 GROUP_SIZES = ["1 人", "2–3 人", "4–8 人", "9 人以上", "完整梯队（含专职技术员）"]
 PROJECTS = ["无在研项目", "校级/院级项目", "省部级项目", "国家级项目", "国家级重大/重点项目"]
 
@@ -55,13 +58,13 @@ CONDITIONS: tuple[dict, ...] = (
 )
 
 DIMENSIONS: tuple[dict, ...] = (
-    {"key": "pi", "label": "负责人学术水平", "label_en": "PI academic standing", "weight": 0.30,
-     "hint": "看代表作与具体贡献，不以期刊影响因子、h-index 或数量代替质量",
+    {"key": "pi", "label": "研究群学术水平", "label_en": "Research group standing", "weight": 0.30,
+     "hint": "看研究群代表性成果与持续贡献，不以期刊影响因子、h-index 或数量代替质量",
      "options": [
-         {"level": 1, "label": "无独立通讯作者成果", "criteria": "仅有参与作者论文，代表作尚不能说明独立贡献"},
-         {"level": 2, "label": "有通讯作者成果", "criteria": "有通讯作者论文，代表作可逐篇说明作者位次与贡献"},
-         {"level": 3, "label": "代表作质量稳定", "criteria": "代表作经同行认可，方法、数据或理论贡献可核验"},
-         {"level": 4, "label": "代表作被同行采用", "criteria": "代表作被复现、采纳、写入指南/教材，或获领域奖励"},
+         {"level": 1, "label": "尚无稳定代表性成果", "criteria": "研究群刚组建，或只有零散参与性成果"},
+         {"level": 2, "label": "有可核对的代表性成果", "criteria": "有明确方向与代表作，作者位次、贡献可逐篇说明"},
+         {"level": 3, "label": "成果质量稳定", "criteria": "代表作经同行认可，方法、数据或理论贡献可核验"},
+         {"level": 4, "label": "成果被同行采用", "criteria": "代表作被复现、采纳、写入指南/教材，或获领域奖励"},
          {"level": 5, "label": "持续高质量产出与引领", "criteria": "多篇代表作形成连续贡献，参与领域标准/共同体建设"},
      ]},
     {"key": "platform", "label": "研究平台与条件", "label_en": "Platform and facilities", "weight": 0.20,
@@ -105,8 +108,6 @@ DIMENSIONS: tuple[dict, ...] = (
 BANDS = ((4.2, "强", "条件基本够，可直接立项"), (3.0, "中", "能做，但需在方案里写清补短板"),
          (0.0, "弱", "建议先合作或缩小目标，别硬上"))
 
-TITLE_LEVEL = {"无通讯作者论文": 1, "讲师/中级": 2, "副教授/副高": 3,
-               "教授/正高": 4, "国家级人才/领域领军": 5}
 ORG_LEVEL = {"普通高校院系": 2, "省部级重点实验室/平台": 3,
              "国家级平台/重点实验室": 4, "全国重点实验室": 5}
 GROUP_LEVEL = {"1 人": 1, "2–3 人": 2, "4–8 人": 3, "9 人以上": 4,
@@ -119,11 +120,10 @@ PLATFORM_HINT_LEVEL = {"省部级重点实验室/平台": 3, "国家级平台/�
                        "全国重点实验室": 5}
 
 DEFAULTS_IDENTITY = {"unit": "", "department": "", "unit_ror": "", "unit_official": "",
+                     "research_group": "", "group_id": "", "group_short": "",
+                     "group_type": "", "group_leader": "", "group_directions": "",
+                     "group_platform": "", "group_source": "", "group_verified": "",
                      "role": "博士生", "org": "省部级重点实验室/平台",
-                     "author": "", "author_title": "教授/正高",
-                     "author_openalex": "", "author_orcid": "", "author_doi": "",
-                     "author_works_count": "",
-                     "lookup_confidence": "", "lookup_note": "",
                      "representative": "", "open_science": "部分开放",
                      "group_size": "4–8 人", "project": "省部级项目"}
 DEFAULTS_CONDITIONS = {"experiment": "干湿结合", "data_source": "共享数据库",
@@ -148,35 +148,6 @@ def _int(value: object, default: int = 0) -> int:
         return default
 
 
-def _research_row(row: dict) -> bool:
-    kind = str(row.get("type") or "").lower()
-    title = str(row.get("title") or "").strip().lower()
-    return kind not in {"erratum", "editorial", "paratext", "letter", "dataset", "peer-review"} \
-        and not title.startswith(("erratum", "correction", "retraction", "editorial"))
-
-
-def evidence_from_works(works: dict, identity: dict | None = None) -> dict:
-    """把 OpenAlex 近作抽样转成可解释的五维证据，不把数量当作质量。"""
-    rows = list((works or {}).get("works") or [])
-    research = [row for row in rows if _research_row(row)]
-    identity = identity or {}
-    total = max(_int((works or {}).get("total")), _int(identity.get("author_works_count")))
-    current = time.gmtime().tm_year
-    recent = [row for row in research if _int(row.get("year")) >= current - 5]
-    corresponding = [row for row in research if row.get("is_corresponding")]
-    first = [row for row in research if row.get("position") == "first"]
-    hint = str((works or {}).get("platform_hint") or "")
-    note = (f"OpenAlex 研究性近作抽样 {len(research)} 篇；"
-            f"标通讯 {len(corresponding)} 篇；第一作者 {len(first)} 篇；"
-            f"总作品 {total or '未取到'}；近 5 年研究性抽样 {len(recent)} 篇")
-    if hint:
-        note += f"；平台线索：{hint}"
-    return {"works_count": total, "sampled": len(rows), "research_sampled": len(research),
-            "recent_works": len(recent),
-            "corresponding_count": len(corresponding), "first_author_count": len(first),
-            "platform_hint": hint, "note": note}
-
-
 def defaults() -> dict:
     base = {"mode": "quick", "identity": dict(DEFAULTS_IDENTITY),
             "dims": {d["key"]: {"level": 3, "source": "auto", "note": ""}
@@ -188,34 +159,34 @@ def defaults() -> dict:
 
 def derive(identity: dict, evidence: dict | None = None,
            conditions: dict | None = None) -> dict:
-    """按填写的单位/职称/人数/项目与公开检索证据推算五维等级。
+    """按填写的单位/研究群/人数/项目与公开证据推算五维等级。
 
-    规则保持保守：公开元数据只用于确认“有没有持续产出/有没有通讯作者成果”，
-    不按论文数量、引用数或期刊影响因子直接抬档；最终档位仍可在界面逐项改。
+    规则保持保守：研究群档案只确认“有没有正式单元、方向与平台”，
+    公开论文只用于确认“有没有持续产出”，不按论文数量、引用数或期刊影响因子直接抬档；
+    最终档位仍可在界面逐项改。
     """
     identity = {**DEFAULTS_IDENTITY, **(identity or {})}
     conditions = {**DEFAULTS_CONDITIONS, **(conditions or {})}
     evidence = evidence or {}
-    pi = TITLE_LEVEL.get(identity.get("author_title"), 3)
+    pi = 3 if identity.get("group_id") else 2
     platform = ORG_LEVEL.get(identity.get("org"), 3)
     foundation = PROJECT_LEVEL.get(identity.get("project"), 3)
     team = GROUP_LEVEL.get(identity.get("group_size"), 3)
     funding = PROJECT_LEVEL.get(identity.get("project"), 3)
 
-    total = max(_int(evidence.get("works_count")), _int(identity.get("author_works_count")))
-    corresponding = _int(evidence.get("corresponding_count"))
+    total = _int(evidence.get("works_count"))
     recent = _int(evidence.get("recent_works"))
     hint = str(evidence.get("platform_hint") or "")
     if hint in PLATFORM_HINT_LEVEL:
         platform = max(platform, PLATFORM_HINT_LEVEL[hint])
-    if total:
-        pi = max(pi, 2)
-    if corresponding:
-        pi = max(pi, 2)
-    if corresponding >= 2:
-        pi = max(pi, 3)
+    if evidence.get("platform_level") in PLATFORM_HINT_LEVEL:
+        platform = max(platform, PLATFORM_HINT_LEVEL[evidence["platform_level"]])
     if total >= 5 or recent >= 3:
+        pi = max(pi, 3)
         foundation = max(foundation, 3)
+    if total >= 15 and recent >= 5:
+        pi = max(pi, 4)
+        foundation = max(foundation, 4)
     if total >= 15 and PROJECT_LEVEL.get(identity.get("project"), 1) >= 3:
         foundation = max(foundation, 4)
     funding = max(funding, BUDGET_LEVEL.get(conditions.get("budget"), 1))
@@ -247,8 +218,8 @@ def _merge(raw: dict | None) -> dict:
     identity = raw.get("identity") if isinstance(raw.get("identity"), dict) else {}
     for key, value in identity.items():
         if key in data["identity"] and isinstance(value, str):
-            limit = 220 if key in ("unit_ror", "author_openalex", "author_orcid",
-                                   "author_doi", "lookup_note") else 80
+            limit = 260 if key in ("unit_ror", "unit_official", "group_id", "group_source",
+                                   "group_platform", "group_directions", "group_leader") else 120
             data["identity"][key] = value[:limit]
     if not data["identity"].get("department") and data["identity"].get("unit"):
         match = re.match(r"^(.{2,}?(?:大学|学院|研究院|研究所|中心|医院|学校))(.{2,})$",
@@ -329,21 +300,22 @@ def schema() -> dict:
     """给界面渲染表单：快速填写项、五维档位、研究条件选项。"""
     return {
         "identity": [
-            {"key": "unit", "label": "单位（机构）", "type": "text",
+            {"key": "unit", "label": "单位（ROR 机构）", "type": "text",
              "placeholder": "例：兰州大学"},
             {"key": "department", "label": "院系/部门", "type": "text",
              "placeholder": "例：草地农业科技学院"},
+            {"key": "research_group", "label": "研究群（研究所/中心）", "type": "text",
+             "placeholder": "输入简称，如 草微中心"},
+            {"key": "group_leader", "label": "研究群负责人", "type": "text",
+             "placeholder": "选中研究群后按官网带出；可改"},
             {"key": "role", "label": "申请人身份", "type": "select", "options": ROLES},
-            {"key": "org", "label": "单位平台层级", "type": "select", "options": ORGS},
-            {"key": "author", "label": "通讯作者", "type": "text", "placeholder": "姓名"},
-            {"key": "author_title", "label": "通讯作者职称/层级", "type": "select",
-             "options": AUTHOR_TITLES},
-            {"key": "representative", "label": "代表作与贡献", "type": "text",
-             "placeholder": "例：3 篇代表作，注明作者位次与个人贡献"},
+            {"key": "org", "label": "研究群平台层级", "type": "select", "options": ORGS},
+            {"key": "representative", "label": "研究群代表性成果与贡献", "type": "text",
+             "placeholder": "例：3 篇代表作，注明作者位次与团队贡献"},
             {"key": "open_science", "label": "开放科学实践", "type": "select",
              "options": ["数据与代码开放", "部分开放", "仅论文", "待定"]},
-            {"key": "group_size", "label": "课题组人数", "type": "select", "options": GROUP_SIZES},
-            {"key": "project", "label": "在研项目层级", "type": "select", "options": PROJECTS},
+            {"key": "group_size", "label": "研究群人数", "type": "select", "options": GROUP_SIZES},
+            {"key": "project", "label": "研究群在研项目层级", "type": "select", "options": PROJECTS},
         ],
         "conditions": [{"key": c["key"], "label": c["label"], "group": c.get("group", ""),
                         "options": c["options"]}
@@ -372,26 +344,28 @@ def markdown_block(profile: dict | None = None) -> list[str]:
     result = evaluate(profile)
     identity = result["identity"]
     full_unit = _full_unit(identity)
-    lines = ["### 课题组条件与可行性", "",
+    lines = ["### 研究群条件与可行性", "",
              f"- 综合得分：**{result['score']} / 5**（{result['band']}）——{result['advice']}",
              f"- 单位：{full_unit or '待申请人补充'}；"
+             f"研究群：{identity.get('research_group') or '待选'}（{identity.get('group_type') or '未标注类型'}）；"
+             f"负责人：{identity.get('group_leader') or '官网未列'}；"
              f"申请人身份：{identity.get('role')}；"
-             f"通讯作者：{(identity.get('author') or '待补')}（{identity.get('author_title')}）；"
-             f"课题组规模：{identity.get('group_size')}；在研项目：{identity.get('project')}",
-             f"- 代表作与贡献：{identity.get('representative') or '待申请人按代表作逐篇说明'}；"
+             f"研究群人数：{identity.get('group_size')}；在研项目：{identity.get('project')}",
+             f"- 研究方向：{identity.get('group_directions') or '官网未列，需按研究群页面补充'}；"
+             f"平台：{identity.get('group_platform') or '待核对'}",
+             f"- 代表性成果与贡献：{identity.get('representative') or '待申请人按代表作逐篇说明'}；"
              f"开放科学实践：{identity.get('open_science')}"]
     verify = []
     if identity.get("unit_ror"):
         verify.append(f"单位 ROR：{identity['unit_ror']}")
-    if identity.get("author_orcid"):
-        verify.append(f"通讯作者 ORCID：{identity['author_orcid']}")
-    if identity.get("author_doi"):
-        verify.append(f"核验 DOI：{identity['author_doi']}")
-    if identity.get("lookup_confidence"):
-        verify.append(f"身份核验置信度：{identity['lookup_confidence']}")
+    if identity.get("group_id"):
+        verify.append(f"研究群目录 ID：{identity['group_id']}")
+    if identity.get("group_source"):
+        verify.append(f"研究群来源：{identity['group_source']}")
+    if identity.get("group_verified"):
+        verify.append(f"核验日期：{identity['group_verified']}")
     if verify:
-        lines.append("- 身份核验：" + "；".join(verify) +
-                     (f"；{identity['lookup_note']}" if identity.get("lookup_note") else ""))
+        lines.append("- 目录核验：" + "；".join(verify))
     lines += ["- 五维评级（1–5 级；权重按通讯评议常用结构，可按本单位口径调整）：", "",
               "| 维度 | 权重 | 评级 | 档位判据 | 来源 |", "| --- | --- | --- | --- | --- |"]
     for row in result["rows"]:

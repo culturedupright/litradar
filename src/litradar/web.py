@@ -9,7 +9,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import credentials, identity, oecd, team
+from . import credentials, groups, identity, oecd, team
 from .config import DB_PATH
 from .llm import resolve_model, set_activity
 from .model_catalog import list_models
@@ -21,53 +21,30 @@ LOCK = threading.Lock()
 
 
 def _derive_team(payload: dict) -> tuple[dict, dict, str]:
-    """把页面填的条件与可检索到的作者证据合起来推算五维。
+    """把页面填的条件与研究群档案合起来推算五维。
 
-    只有高置信、唯一的作者候选才会自动带入；候选不唯一时不替用户选人。
+    研究群只认本地权威目录：单位、院系、负责人、方向、平台都从目录带入；
+    不按姓名猜人，不按论文数推职称，不替用户认定作者身份。
     """
     profile = team.quick_derive(payload.get("profile") or {})
     evidence: dict = {}
     note = ""
     try:
         identity_row = profile.get("identity") or {}
-        author_id = str(identity_row.get("author_openalex") or "")
-        if not author_id and identity_row.get("author") and identity_row.get("unit"):
-            found = identity.lookup("search", {
-                "name": identity_row.get("author"), "unit": identity_row.get("unit"),
-                "orcid": identity_row.get("author_orcid") or "",
-            })
-            if found.get("error"):
-                note = str(found["error"])
-            else:
-                authors = found.get("authors") or []
-                high = [row for row in authors if row.get("confidence") == "高"]
-                if len(high) == 1:
-                    row = high[0]
-                    author_id = str(row.get("id") or "")
-                    identity_row["author_openalex"] = author_id
-                    identity_row["author_orcid"] = str(row.get("orcid") or "")
-                    identity_row["author_works_count"] = str(row.get("works_count") or "")
-                    identity_row["lookup_confidence"] = "高"
-                    identity_row["lookup_note"] = ("OpenAlex " + author_id +
-                                                  "；作者候选自动带入，仍需确认")
-                    note = "已用唯一高置信作者候选补充证据"
-                elif authors:
-                    note = "作者候选不唯一，未自动选人；先在上方确认作者，再重新推算"
-        if author_id:
-            works = identity.author_works(author_id, identity_row.get("author") or "",
-                                          identity_row.get("unit") or "",
-                                          identity_row.get("unit_ror") or "")
-            evidence = team.evidence_from_works(works, identity_row)
-            if not identity_row.get("representative") and works.get("representative_suggestion"):
-                identity_row["representative"] = str(works["representative_suggestion"])[:220]
-            if not identity_row.get("org") and works.get("platform_hint"):
-                identity_row["org"] = str(works["platform_hint"])
-            note = "；".join(x for x in (note, evidence.get("note", "")) if x)
-        elif not note:
-            note = "未取到作者 ID；先按填写推算，填单位与通讯作者后可再检索补充"
-        profile = team.quick_derive(profile, evidence)
-    except Exception as exc:  # noqa: BLE001 - 检索失败退回规则推算
-        note = f"检索补充失败，已按填写推算：{str(exc)[:120]}"
+        group = groups.resolve(identity_row)
+        if group:
+            patch = groups.identity_patch(group)
+            for key, value in patch.items():
+                if key in ("unit", "department", "unit_ror", "unit_official") or not identity_row.get(key):
+                    identity_row[key] = value
+            evidence = groups.evidence(group)
+            note = (f"已带入研究群档案：{group['name']}；"
+                    "职级不在目录里猜，五维按平台、队伍、项目与公开成果核对")
+            profile = team.quick_derive(profile, evidence)
+        else:
+            note = "未选中研究群；输入简称如“草微中心”，或按单位、院系、研究群手填"
+    except Exception as exc:  # noqa: BLE001 - 目录读取失败退回规则推算
+        note = f"研究群目录读取失败，已按填写推算：{str(exc)[:120]}"
         profile = team.quick_derive(payload.get("profile") or {})
     return profile, evidence, note
 
@@ -208,12 +185,12 @@ button:disabled{opacity:.45;cursor:not-allowed}
 </div>
 
 <div class="panel">
-<h2 class="sect">课题组条件（基金评审五维 + 研究条件）</h2>
-<p class="hint">先输入单位与通讯作者，在下拉里选中规范记录；再点“生成课题组画像”。插件会补院系、平台、近作与五维依据；只用于本次推算，刷新后恢复默认。</p>
+<h2 class="sect">研究群条件（组织单元 + 基金评审五维）</h2>
+<p class="hint">按“单位 → 院系 → 研究群”选：单位走 ROR，院系与研究群按学院官网机构设置页维护。输入“草微中心”等简称可直接选正式研究群；职级不自动推断，负责人以官网为准。</p>
 <div class="grid" id="teamquick"></div>
 <div class="actions" style="margin:14px 0 8px">
-  <button class="mini" id="teamderive">生成课题组画像</button>
-  <span class="hint" id="teamhint">五维随单位、作者与条件填写更新；本次填写只在页面内，刷新后恢复默认</span>
+  <button class="mini" id="teamderive">生成研究群画像</button>
+  <span class="hint" id="teamhint">五维随研究群、平台与条件填写更新；本次填写只在页面内，刷新后恢复默认</span>
 </div>
 <div class="hint" id="lookmsg" style="margin:4px 0 8px"></div>
 <div id="lookbox" class="profilebox"></div>
@@ -249,7 +226,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
 <script>
 let taskId=null,timer=null;
 const $=id=>document.getElementById(id);
-let CRED=null, DIMS=[], SCHEMA=null, TEAM=null, VERIFIED={}, STALE=[], TITLE_MANUAL=false, DEPT_MANUAL=false;
+let CRED=null, DIMS=[], SCHEMA=null, TEAM=null, VERIFIED={}, STALE=[];
 let teamTimer=null, teamSeq=0, suggestTimer=null, suggestSeq=0;
 function loadSettings(){
   fetch("/api/settings").then(r=>r.json()).then(d=>{
@@ -362,8 +339,8 @@ function esc(s){
   return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
 }
 function syncVerified(id){
-  const keys=["unit_ror","unit_official","author_openalex","author_orcid","author_doi",
-    "author_works_count","lookup_confidence","lookup_note","author_name"];
+  const keys=["unit_ror","unit_official","group_id","group_name","group_short","group_type",
+    "group_leader","group_directions","group_platform","group_source","group_verified"];
   const out={};keys.forEach(k=>{if(id&&id[k])out[k]=id[k];});return out;
 }
 function deptFromUnit(original, official, zh){
@@ -386,48 +363,54 @@ function scheduleSuggest(key){
   suggestTimer=setTimeout(()=>loadSuggestions(key),380);
 }
 function loadSuggestions(key){
-  const unit=($("id_unit")&&$("id_unit").value||"").trim();
-  const name=($("id_author")&&$("id_author").value||"").trim();
-  const q=key==="unit"?unit:name;
-  const box=$("sug_"+key);
+  const box=$("sug_"+(key==="group"?"group":key));
   if(!box)return;
-  if(q.length<2){box.innerHTML="";return;}
+  const unit=($("id_unit")&&$("id_unit").value||"").trim();
+  const groupQ=($("id_research_group")&&$("id_research_group").value||"").trim();
+  const q=key==="unit"?unit:groupQ;
+  if(key==="unit"&&q.length<2){box.innerHTML="";return;}
   const seq=++suggestSeq;
   box.innerHTML='<div class="meta">正在检索…</div>';
+  if(key==="group"){
+    fetch("/api/groups?q="+encodeURIComponent(q)).then(r=>r.json()).then(d=>{
+      if(seq!==suggestSeq)return;
+      if(d.error){box.innerHTML='<div class="bad">'+esc(d.error)+'</div>';return;}
+      const rows=(d.groups||[]).map(g=>({
+        html:'<b>'+esc(g.name)+'</b><span class="pick">'+esc(g.short||"")+' · 采用</span>'+
+          '<div class="meta">'+esc([g.type_label,g.leader?("负责人 "+g.leader):"官网未列负责人",
+          (g.directions||[]).slice(0,2).join("；"),g.verified?("核验 "+g.verified):""].filter(Boolean).join(" · "))+'</div>',
+        click:()=>selectGroup(g)
+      }));
+      box.innerHTML="";
+      if(!rows.length){box.innerHTML='<div class="meta">没有匹配的研究群；补全称或简称，或按单位/院系手填。</div>';return;}
+      rows.forEach(r=>{
+        const item=document.createElement("div");item.className="item";item.innerHTML=r.html;
+        item.onclick=r.click;box.appendChild(item);
+      });
+    }).catch(e=>{if(seq===suggestSeq)box.innerHTML='<div class="bad">研究群目录读取失败：'+esc(e)+'</div>';});
+    return;
+  }
   fetch("/api/identity",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({action:"search",unit:key==="unit"?unit:unit,name:key==="author"?name:"",
-      orcid:"",doi:"",ror:VERIFIED.unit_ror||""})}).then(r=>r.json()).then(d=>{
+    body:JSON.stringify({action:"search",unit:unit,name:"",orcid:"",doi:"",ror:VERIFIED.unit_ror||""})}).then(r=>r.json()).then(d=>{
     if(seq!==suggestSeq)return;
     if(d.error){box.innerHTML='<div class="bad">'+esc(d.error)+'</div>';return;}
-    let rows=[];
-    if(key==="unit"){
-      rows=(d.institutions||[]).slice(0,5).map(inst=>({
-        html:'<b>'+esc(inst.name||inst.name_zh)+'</b><span class="pick">采用</span>'+
-          '<div class="meta">'+esc([inst.name_zh,inst.country_name,inst.type,
-          inst.ror?("ROR "+inst.ror):""].filter(Boolean).join(" · "))+'</div>',
-        click:()=>selectInstitution(inst)
-      }));
-      if(!rows.length)box.innerHTML='<div class="meta">ROR 没匹配到单位，补官方英文名或直接手填。</div>';
-    }else{
-      rows=(d.authors||[]).slice(0,8).map(a=>({
-        html:'<b>'+esc(a.name)+'</b><span class="pick">'+esc(a.confidence||"")+'置信度 · 采用</span>'+
-          '<div class="meta">'+esc([(a.institutions||[]).map(x=>x.name).slice(0,2).join("；"),
-          a.orcid?("ORCID "+a.orcid):"",a.works_count+" 篇",
-          a.institution_match===false?"机构不匹配，需核对":""].filter(Boolean).join(" · "))+'</div>',
-        click:()=>selectAuthor(a)
-      }));
-      if(!rows.length)box.innerHTML='<div class="meta">没有作者候选；补 ORCID，或用论文英文署名再试。</div>';
-    }
-    box.innerHTML="";rows.forEach(r=>{
+    const rows=(d.institutions||[]).slice(0,5).map(inst=>({
+      html:'<b>'+esc(inst.name||inst.name_zh)+'</b><span class="pick">采用</span>'+
+        '<div class="meta">'+esc([inst.name_zh,inst.country_name,inst.type,
+        inst.ror?("ROR "+inst.ror):""].filter(Boolean).join(" · "))+'</div>',
+      click:()=>selectInstitution(inst)
+    }));
+    box.innerHTML="";
+    if(!rows.length){box.innerHTML='<div class="meta">ROR 没匹配到单位，补官方英文名或直接手填。</div>';return;}
+    rows.forEach(r=>{
       const item=document.createElement("div");item.className="item";item.innerHTML=r.html;
       item.onclick=r.click;box.appendChild(item);
     });
-    if(key==="author"&&(d.authors||[]).length<=1){
-      const tip=document.createElement("div");tip.className="meta";
-      tip.textContent="OpenAlex 只返回这一条；如果不对，换英文署名再搜，或补 ORCID/论文 DOI 核验。";
-      box.appendChild(tip);
-    }
   }).catch(e=>{if(seq===suggestSeq)box.innerHTML='<div class="bad">检索失败：'+esc(e)+'</div>';});
+}
+function clearGroupVerified(){
+  ["group_id","group_name","group_short","group_type","group_leader","group_directions",
+   "group_platform","group_source","group_verified"].forEach(k=>{VERIFIED[k]="";});
 }
 function selectInstitution(inst){
   const original=$("id_unit").value.trim();
@@ -435,136 +418,59 @@ function selectInstitution(inst){
   const newRor=inst.id||"";
   let msg="已采用单位："+(inst.name||inst.name_zh);
   if(VERIFIED.unit_ror&&VERIFIED.unit_ror!==newRor){
-    VERIFIED.author_openalex="";VERIFIED.author_orcid="";
-    VERIFIED.author_works_count="";VERIFIED.author_doi="";
-    VERIFIED.lookup_confidence="";
-    msg="单位已更新；请重新选择通讯作者。";
+    clearGroupVerified();
+    msg="单位已更新；请重新选择研究群。";
   }
   $("id_unit").value=inst.name||inst.name_zh||original;
   if(dept&&$("id_department"))$("id_department").value=dept;
   VERIFIED.unit_ror=newRor;
   VERIFIED.unit_official=inst.name||inst.name_zh||"";
-  VERIFIED.lookup_confidence="单位已核验";
-  VERIFIED.lookup_note="ROR "+(inst.ror||"")+"；"+(inst.country_name||"")+
-    (inst.website?("；"+inst.website):"");
   $("lookmsg").textContent=msg;
   $("lookmsg").classList.add("good");
   hideSuggest("unit");
-  $("lookbox").innerHTML='<div class="match"><b>课题组画像 · 单位</b><div class="meta">'+
+  $("lookbox").innerHTML='<div class="match"><b>研究群画像 · 单位</b><div class="meta">'+
     esc(inst.name||inst.name_zh)+' · ROR '+esc(inst.ror||"")+
-    (dept?(' · 院系 '+esc(dept)):'')+'</div></div>'+
-    '<div id="workpanel" class="match" style="display:none"></div>';
-  if($("id_author")&&$("id_author").value.trim())scheduleTeam();
+    (dept?(' · 院系 '+esc(dept)):'')+'</div><div class="meta">下一步：输入研究群简称，如“草微中心”。</div></div>';
 }
-function inferredTitle(works,corr){
-  const w=+works||0,c=+corr||0;
-  if(c>=2||w>=25)return "教授/正高";
-  if(c>=1||w>=8)return "副教授/副高";
-  if(w>=2)return "讲师/中级";
-  return "无通讯作者论文";
-}
-function applyAuthorTitle(works,corr,why){
-  if(TITLE_MANUAL||!$("id_author_title"))return "";
-  const next=inferredTitle(works,corr);
-  const old=$("id_author_title").value;
-  if(next!==old){
-    $("id_author_title").value=next;
-    if(why&&$("lookmsg"))$("lookmsg").textContent="职级按"+why+"推断为"+next+"，可手动改。";
-  }
-  return next;
-}
-function setOrg(level){
-  const sel=$("id_org");
-  if(!sel||!level)return;
-  [...sel.options].forEach(o=>{if(o.value===level)sel.value=level;});
-  $("lookmsg").textContent="平台层级已设为："+sel.value+"（可再手改）";
+function selectGroup(g){
+  $("id_unit").value=g.unit||"兰州大学";
+  $("id_department").value=g.department||"草地农业科技学院";
+  $("id_research_group").value=g.name||"";
+  if($("id_group_leader"))$("id_group_leader").value=g.leader||"";
+  if(g.platform_level&&$("id_org"))$("id_org").value=g.platform_level;
+  VERIFIED.group_id=g.id||"";
+  VERIFIED.group_name=g.name||"";
+  VERIFIED.group_short=g.short||"";
+  VERIFIED.group_type=g.type_label||"";
+  VERIFIED.group_leader=g.leader||"";
+  VERIFIED.group_directions=(g.directions||[]).join("；");
+  VERIFIED.group_platform=g.platform||"";
+  VERIFIED.group_source=g.source||"";
+  VERIFIED.group_verified=g.verified||"";
+  VERIFIED.unit_ror=g.unit_ror||VERIFIED.unit_ror;
+  VERIFIED.unit_official=g.unit||VERIFIED.unit_official;
+  $("lookmsg").textContent="已采用研究群："+g.name+"（"+g.type_label+"）；档案来自官网，职级不自动推断。";
+  $("lookmsg").classList.add("good");
+  hideSuggest("group");
+  renderGroup(g);
   scheduleTeam();
 }
-function selectAuthor(a){
-  TITLE_MANUAL=false;
-  $("id_author").value=a.name||"";
-  VERIFIED.author_openalex=a.id||"";
-  VERIFIED.author_orcid=a.orcid||"";
-  VERIFIED.author_name=a.name||"";
-  VERIFIED.author_works_count=String(a.works_count||"");
-  VERIFIED.author_doi="";
-  VERIFIED.lookup_confidence=a.confidence||"";
-  VERIFIED.lookup_note="OpenAlex "+(a.id||"")+(a.orcid?("；ORCID "+a.orcid):"")+
-    "；作品 "+a.works_count+" 篇";
-  applyAuthorTitle(a.works_count,0,"");
-  $("lookmsg").textContent="已采用作者："+a.name+"（"+a.confidence+"置信度），正在取近作…";
-  hideSuggest("author");
-  const box=$("lookbox");
-  const old=$("workpanel");if(old)old.remove();
-  const panel=document.createElement("div");panel.className="match";panel.id="workpanel";
-  panel.innerHTML='<div class="meta">正在读取近作…</div>';box.appendChild(panel);
-  fetch("/api/identity",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({action:"works",author_id:a.id,name:a.name,
-      unit:$("id_unit").value,ror:VERIFIED.unit_ror||""})}).then(r=>r.json()).then(d=>{
-    renderWorks(d,a);
-    scheduleTeam();
-  }).catch(e=>{panel.innerHTML='<div class="bad">近作读取失败：'+esc(e)+'</div>';});
-}
-function renderWorks(d,a){
-  const panel=$("workpanel");if(!panel)return;
-  if(d.error){panel.innerHTML='<div class="bad">'+esc(d.error)+'</div>';return;}
-  let autoDept=false;
-  if(d.departments&&d.departments.length&&$("id_department")&&!DEPT_MANUAL
-      &&$("id_department").value.trim()!==d.departments[0].value){
-    $("id_department").value=d.departments[0].value;autoDept=true;
-  }
-  let html='<div class="meta"><b>'+esc(a.name)+'</b> 近作 · 通讯标记来自 OpenAlex，仍需按出版社页面核对。</div>';
-  if(d.departments&&d.departments.length){
-    html+='<div class="meta">论文里出现的院系写法（已按最高频自动填入，可点其他写法改）：</div>';
-    d.departments.forEach(x=>{
-      html+='<span class="chip" data-dept="'+esc(x.value)+'">'+esc(x.value)+
-        ' <span class="hint">'+x.count+' 次</span></span>';
-    });
-  }
-  if(d.platform_hint){
-    html+='<div class="acts"><button class="mini ghost" data-org="'+esc(d.platform_hint)+'">采用平台层级：'+
-      esc(d.platform_hint)+'</button></div>';
-  }
-  const displayWorks=(d.works||[]).filter(w=>{
-    const t=String(w.title||"").trim().toLowerCase();
-    return !["erratum","correction","retraction","editorial","comment","reply"].some(k=>t.startsWith(k));
-  });
-  html+='<div style="margin-top:8px">';
-  displayWorks.forEach(w=>{
-    const pos={first:"第一作者",middle:"中间作者",last:"末位作者"}[w.position]||w.position||"";
-    html+='<div class="work"><b>'+esc(w.title||"(无题)")+'</b>'+
-      '<div class="tagline">'+w.year+' · '+esc(w.journal||"")+' · '+esc(pos)+
-      (w.is_corresponding?' · <span class="good">通讯作者</span>':'')+
-      (w.doi?' · DOI '+esc(w.doi):'')+'</div></div>';
-  });
+function renderGroup(g){
+  const dirs=(g.directions||[]);
+  const members=(g.members||[]);
+  let html='<div class="match"><b>研究群档案 · '+esc(g.name)+'</b>'+
+    '<div class="meta">'+esc([g.short,g.type_label,g.unit,g.department].filter(Boolean).join(" · "))+'</div>'+
+    '<div class="meta">负责人：'+esc(g.leader||"官网未列")+'</div>'+
+    '<div class="meta">研究方向：'+esc(dirs.length?dirs.join("；"):"官网未列，需按研究群页面补充")+'</div>'+
+    '<div class="meta">平台：'+esc(g.platform||"待核对")+'</div>'+
+    '<div class="meta">成员：'+esc(members.length?members.join("、"):"官网未列")+'</div>'+
+    '<div class="meta">来源：'+esc(g.source||"")+' · 核验 '+esc(g.verified||"")+'</div>';
+  if(g.note)html+='<div class="meta">'+esc(g.note)+'</div>';
   html+='</div>';
-  if(!displayWorks.length)html+='<div class="meta">没有可显示的研究性近作；代表作请按实际补写。</div>';
-  if(d.representative_suggestion){
-    html+='<div class="acts"><button class="mini" id="useRep">带入代表作候选</button></div>';
-  }
-  const first=(d.works||[]).find(w=>w.is_corresponding)||(d.works||[])[0]||{};
-  panel.innerHTML=html;
-  panel.querySelectorAll("[data-dept]").forEach(el=>{
-    el.onclick=()=>{if($("id_department"))$("id_department").value=el.dataset.dept;DEPT_MANUAL=true;
-      $("lookmsg").textContent="院系已填入："+el.dataset.dept;};
-  });
-  panel.querySelectorAll("[data-org]").forEach(el=>{
-    el.onclick=()=>setOrg(el.dataset.org);
-  });
-  const use=$("useRep");
-  if(use)use.onclick=()=>{
-    $("id_representative").value=d.representative_suggestion||"";
-    VERIFIED.author_doi=first.doi||"";
-    VERIFIED.lookup_confidence=(VERIFIED.lookup_confidence||"中")+"；代表作已带入";
-    $("lookmsg").textContent="代表作候选已填入，个人贡献请按实际补写。";
-  };
-  const corrCount=(d.works||[]).filter(w=>w.is_corresponding).length;
-  applyAuthorTitle(d.total,corrCount,"");
-  const titleNow=($("id_author_title")&&!TITLE_MANUAL)?$("id_author_title").value:"";
-  if($("lookmsg"))$("lookmsg").textContent="已采用作者："+(a.name||"")+"；近作已读取"+
-    (autoDept?"；院系按论文高频写法自动填入":"")+
-    (titleNow?"；职级按公开成果推断为"+titleNow+"，可改":"")+"。";
+  $("lookbox").innerHTML=html;
 }
+
+
 function renderTeam(){
   const quick=$("teamquick");quick.innerHTML="";
   (SCHEMA.identity||[]).forEach(f=>{
@@ -580,16 +486,16 @@ function renderTeam(){
       input.value=(TEAM.identity||{})[f.key]||"";
     }
     input.id="id_"+f.key;
-    if(f.key==="unit"||f.key==="author"){
+    if(f.key==="unit"||f.key==="research_group"){
+      const sKey=f.key==="research_group"?"group":f.key;
       input.autocomplete="off";
-      input.oninput=()=>scheduleSuggest(f.key);
-      const sug=document.createElement("div");sug.className="suggest";sug.id="sug_"+f.key;
+      input.oninput=()=>scheduleSuggest(sKey);
+      if(f.key==="research_group")input.onfocus=()=>loadSuggestions("group");
+      const sug=document.createElement("div");sug.className="suggest";sug.id="sug_"+sKey;
       wrap.append(lab,input,sug);quick.appendChild(wrap);
       return;
     }
     input.onchange=scheduleTeam;
-    if(f.key==="author_title")input.onchange=()=>{TITLE_MANUAL=true;scheduleTeam();};
-    if(f.key==="department")input.oninput=()=>{DEPT_MANUAL=true;};
     wrap.append(lab,input);quick.appendChild(wrap);
   });
   const dims=$("teamdims");dims.innerHTML="";
@@ -643,11 +549,11 @@ function renderTeam(){
 function teamIdentity(){
   const out={};(SCHEMA.identity||[]).forEach(f=>{out[f.key]=($("id_"+f.key)||{}).value||"";});
   if(VERIFIED.unit_official&&out.unit!==VERIFIED.unit_official){
-    VERIFIED.unit_ror="";VERIFIED.unit_official="";VERIFIED.lookup_confidence="";
+    VERIFIED.unit_ror="";VERIFIED.unit_official="";
+    clearGroupVerified();
   }
-  if(VERIFIED.author_name&&out.author!==VERIFIED.author_name){
-    VERIFIED.author_openalex="";VERIFIED.author_orcid="";VERIFIED.author_works_count="";
-    VERIFIED.lookup_confidence="";VERIFIED.author_doi="";
+  if(VERIFIED.group_name&&out.research_group!==VERIFIED.group_name){
+    clearGroupVerified();
   }
   Object.assign(out,VERIFIED);
   return out;
@@ -674,7 +580,7 @@ function scheduleTeam(){
 }
 function deriveTeam(manual){
   const seq=++teamSeq;
-  if(manual)$("teamhint").textContent="正在核对作者近作、单位平台与五维判据…";
+  if(manual)$("teamhint").textContent="正在按研究群目录核对单位、平台、队伍与五维判据…";
   fetch("/api/team/derive",{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({profile:teamProfile()})}).then(r=>r.json()).then(d=>{
       if(seq!==teamSeq)return;
@@ -880,6 +786,20 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 model, has_key = "", False
             self._json({"ok": True, "app": "litradar", "model": model, "key": has_key})
+            return
+        if route.path == "/api/groups":
+            q = (query.get("q") or [""])[0]
+            self._json({"groups": [groups.as_json(g) for g in groups.search(q)]})
+            return
+        if route.path == "/api/groups/profile":
+            gid = (query.get("id") or [""])[0]
+            group = groups.get(gid)
+            if not group:
+                self._json({"error": "研究群不在目录里"}, 404)
+                return
+            self._json({"group": groups.as_json(group),
+                        "identity": groups.identity_patch(group),
+                        "evidence": groups.evidence(group)})
             return
         if route.path == "/api/status":
             task_id = (query.get("id") or [""])[0]

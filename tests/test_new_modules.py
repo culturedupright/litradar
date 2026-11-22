@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from litradar import credentials, identity, oecd, proposal, team
+from litradar import credentials, groups, identity, oecd, proposal, team
 from litradar.models import Paper
 from litradar import sources as source_module
 from litradar.sources import _crossref_year, _inverted, _merge, _parse_pubmed, search_all, tokens
@@ -53,7 +53,7 @@ def test_team_scores_and_gaps() -> None:
                             ("pi", "platform", "foundation", "team", "funding")})
     assert strong["score"] == 5.0 and strong["band"] == "强"
     weak = team.evaluate({"pi": {"level": 1, "note": ""}})
-    assert "负责人学术水平" in weak["gaps"]
+    assert "研究群学术水平" in weak["gaps"]
 
 
 def test_oecd_full_taxonomy_and_classify() -> None:
@@ -70,21 +70,25 @@ def test_oecd_full_taxonomy_and_classify() -> None:
 
 def test_team_quick_derive_conditions_and_schema() -> None:
     profile = team.defaults()
-    profile["identity"].update({"author_title": "教授/正高", "org": "全国重点实验室",
+    profile["identity"].update({"research_group": "草地微生物研究中心",
+                                "group_id": "lzu-caoye-microbial-center",
+                                "org": "全国重点实验室",
                                 "group_size": "9 人以上", "project": "国家级项目"})
     profile = team.quick_derive(profile)
-    assert profile["dims"]["pi"]["level"] == 4
+    assert profile["dims"]["pi"]["level"] == 3
     assert profile["dims"]["platform"]["level"] == 5
     assert profile["conditions"]["period"] == "1 年"
-    assert team.evaluate(profile)["score"] >= 4.0
+    assert team.evaluate(profile)["score"] >= 3.5
     schema = team.schema()
     assert schema["identity"] and schema["conditions"]
+    keys = [row["key"] for row in schema["identity"]]
+    assert "research_group" in keys and "author_title" not in keys
     assert schema["dimensions"][0]["options"][0]["criteria"]
 
 
 def test_team_derive_uses_publication_evidence() -> None:
     profile = team.defaults()
-    profile["identity"].update({"author_title": "无通讯作者论文", "org": "普通高校院系",
+    profile["identity"].update({"org": "普通高校院系",
                                 "group_size": "1 人", "project": "无在研项目"})
     profile["conditions"].update({"budget": "5 万以内", "period": "3 个月"})
     evidence = {"works_count": 30, "recent_works": 10, "corresponding_count": 3,
@@ -175,10 +179,46 @@ def test_team_full_unit_combines_institution_and_department() -> None:
     profile = team.defaults()
     profile["identity"].update({"unit": "兰州大学", "department": "草地农业科技学院",
                                 "unit_ror": "https://ror.org/01mkqqe32",
-                                "lookup_confidence": "高"})
+                                "research_group": "草地微生物研究中心",
+                                "group_id": "lzu-caoye-microbial-center"})
     md = "\n".join(team.markdown_block(profile))
     assert "兰州大学草地农业科技学院" in md
-    assert "ROR" in md and "高" in md
+    assert "ROR" in md and "研究群目录 ID" in md
+    assert "通讯作者" not in md
+
+
+def test_group_directory_has_formal_units_and_aliases() -> None:
+    rows = groups.search("")
+    assert len(rows) == 11
+    center = groups.get("lzu-caoye-microbial-center")
+    assert center and center["name"] == "草地微生物研究中心"
+    assert center["leader"] == "南志标"
+    assert "草地土壤微生物" in center["directions"]
+    assert groups.search("草微")[0]["id"] == "lzu-caoye-microbial-center"
+    assert groups.search("草保")[0]["id"] == "lzu-caoye-grassland-protection"
+
+
+def test_group_identity_patch_and_evidence() -> None:
+    group = groups.get("lzu-caoye-microbial-center")
+    assert group
+    patch = groups.identity_patch(group)
+    assert patch["unit"] == "兰州大学"
+    assert patch["department"] == "草地农业科技学院"
+    assert patch["unit_ror"] == "https://ror.org/01mkqqe32"
+    assert patch["group_id"] == "lzu-caoye-microbial-center"
+    assert patch["org"] == "全国重点实验室"
+    assert "南志标" in patch["group_leader"]
+    evidence = groups.evidence(group)
+    assert evidence["has_leader"] and evidence["direction_count"] == 4
+    assert evidence["verified"] == "2026-11-22"
+
+
+def test_team_schema_has_no_corresponding_author_fields() -> None:
+    keys = [row["key"] for row in team.schema()["identity"]]
+    assert "research_group" in keys and "group_leader" in keys
+    assert "author" not in keys and "author_title" not in keys
+    labels = [row["label"] for row in team.schema()["identity"]]
+    assert any("研究群" in label for label in labels)
 
 
 def _ror_fixture() -> dict:
@@ -262,4 +302,3 @@ def test_identity_doi_check(monkeypatch) -> None:
     assert out["ok"] and out["confidence"] == "高"
     assert out["corresponding"] == ["Wei Zhang"]
     assert all(x["ok"] for x in out["checks"])
-
