@@ -131,6 +131,32 @@ def _ror_queries(query: str) -> list[str]:
     return out[:5]
 
 
+def _name_variants(name: str) -> list[str]:
+    """中文姓名转常见英文署名顺序，补 OpenAlex 对中文名的召回。
+
+    OpenAlex 的 display_name 多数是英文/拼音；中文姓名直接搜经常为空。
+    这里只在本地做拼音转换，不把姓名发给第三方翻译服务。
+    """
+    name = str(name or "").strip()
+    if not name or not re.search(r"[\u4e00-\u9fff]", name):
+        return []
+    try:
+        from pypinyin import Style, lazy_pinyin  # type: ignore
+        parts = [p for p in lazy_pinyin(name, style=Style.NORMAL) if p]
+    except Exception:  # noqa: BLE001 - 未装拼音库时保持原检索
+        return []
+    if len(parts) < 2:
+        return []
+    surname, given = parts[0], parts[1:]
+    rows = [" ".join([*given, surname]), " ".join([surname, *given])]
+    out = []
+    for row in rows:
+        row = " ".join(word.capitalize() for word in row.split())
+        if row.lower() != name.lower() and row not in out:
+            out.append(row)
+    return out
+
+
 def _score_name(query: str, names: list[str]) -> int:
     q = _norm(query)
     best = 0
@@ -324,12 +350,24 @@ def _department_candidates(rows: list[dict], institution_names: list[str]) -> li
     return sorted(counts.values(), key=lambda x: (-x["count"], -x["last_year"]))[:6]
 
 
+def _research_work(row: dict) -> bool:
+    """判断一条 OpenAlex 记录是不是可当代表作的 research item。"""
+    kind = str(row.get("type") or "").lower()
+    title = str(row.get("title") or "").strip().lower()
+    if kind in {"erratum", "editorial", "paratext", "letter", "dataset", "peer-review"}:
+        return False
+    if title.startswith(("erratum", "correction", "retraction", "editorial")):
+        return False
+    return True
+
+
 def author_works(author_id: str, name: str = "", unit: str = "", ror: str = "",
                  limit: int = 10) -> dict:
     """取作者近作，返回通讯标记、作者位次、院系写法与代表作候选。"""
     aid = re.sub(r"[^A-Za-z0-9]", "", str(author_id or "").rsplit("/", 1)[-1])
     if not aid:
-        return {"works": [], "departments": [], "platform_hint": "", "representative_suggestion": ""}
+        return {"works": [], "total": 0, "departments": [], "platform_hint": "",
+                "representative_suggestion": ""}
     params = {
         "filter": f"author.id:{aid}", "per-page": min(limit, 25),
         "sort": "publication_year:desc",
@@ -339,6 +377,7 @@ def author_works(author_id: str, name: str = "", unit: str = "", ror: str = "",
         data = _json(_openalex_url("/works", params))
     except Exception:  # noqa: BLE001
         data = {}
+    total = int((data.get("meta") or {}).get("count") or 0)
     rows = []
     for item in (data.get("results") or [])[:limit]:
         authorships = item.get("authorships") or []
@@ -361,8 +400,9 @@ def author_works(author_id: str, name: str = "", unit: str = "", ror: str = "",
         })
     names = [unit] if unit else []
     departments = _department_candidates(rows, [name, *names])
-    corresponding = [r for r in rows if r["is_corresponding"]]
-    base = corresponding[0] if corresponding else (rows[0] if rows else None)
+    research = [row for row in rows if _research_work(row)]
+    corresponding = [row for row in research if row["is_corresponding"]]
+    base = corresponding[0] if corresponding else (research[0] if research else None)
     representative = ""
     if base:
         pos = {"first": "第一作者", "last": "末位作者", "middle": "中间作者"}.get(base["position"], "")
@@ -371,7 +411,7 @@ def author_works(author_id: str, name: str = "", unit: str = "", ror: str = "",
         if base["doi"]:
             representative += f"，DOI: {base['doi']}"
         representative += f"；作者位次：{rep or '待核'}；个人贡献待申请人补充"
-    return {"works": rows, "departments": departments,
+    return {"works": rows, "total": total, "departments": departments,
             "platform_hint": _platform_hint(rows, name),
             "representative_suggestion": representative}
 
@@ -486,8 +526,18 @@ def lookup(action: str, payload: dict) -> dict:
     if not ror and institutions and institutions[0]["score"] >= 90:
         ror = institutions[0]["id"]
         authors = author_search(name, ror, orcid) if (name or orcid) else []
+    name_note = ""
+    if (name or orcid) and not authors:
+        for variant in _name_variants(name):
+            rows = author_search(variant, ror, orcid)
+            if rows:
+                authors = rows
+                name_note = f"中文姓名按英文署名“{variant}”补搜到候选"
+                break
     note = "先选单位，再选作者；候选人按姓名、ROR、ORCID 匹配排序，不按影响因子、h-index 或论文数量评价质量。"
-    if ror and (name or orcid) and not authors:
+    if name_note:
+        note = name_note + "；仍需确认作者身份。" + note
+    elif ror and (name or orcid) and not authors:
         note = "没有找到近 5 年在该机构发文的同名作者。可只填姓名重搜，或补 ORCID/代表论文 DOI。"
     return {"institutions": institutions, "authors": authors,
             "query": {"name": name, "unit": unit, "orcid": orcid, "doi": doi},

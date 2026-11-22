@@ -37,7 +37,10 @@ def test_credentials_expiry(tmp_path: Path) -> None:
     credentials.PATH = tmp_path / "credentials.json"
     status = credentials.save("wos", {"api_key": "abc", "expires": "2000-01-01"})
     assert status["expired"] and not status["configured"]
+    removed = credentials.clear_expired()
+    assert removed and removed[0]["source"] == "wos"
     assert credentials.active("wos") is None
+    assert not credentials.status("wos")["configured"]
     status = credentials.save("wos", {"api_key": "abc", "expires": "2099-01-01"})
     assert status["configured"]
     assert credentials.active("wos")["api_key"] == "abc"
@@ -77,6 +80,27 @@ def test_team_quick_derive_conditions_and_schema() -> None:
     schema = team.schema()
     assert schema["identity"] and schema["conditions"]
     assert schema["dimensions"][0]["options"][0]["criteria"]
+
+
+def test_team_derive_uses_publication_evidence() -> None:
+    profile = team.defaults()
+    profile["identity"].update({"author_title": "无通讯作者论文", "org": "普通高校院系",
+                                "group_size": "1 人", "project": "无在研项目"})
+    profile["conditions"].update({"budget": "5 万以内", "period": "3 个月"})
+    evidence = {"works_count": 30, "recent_works": 10, "corresponding_count": 3,
+                "platform_hint": "省部级重点实验室/平台"}
+    profile = team.quick_derive(profile, evidence)
+    assert profile["dims"]["pi"]["level"] >= 3
+    assert profile["dims"]["foundation"]["level"] >= 3
+    assert profile["dims"]["platform"]["level"] >= 3
+
+
+def test_chinese_name_variants_for_openalex() -> None:
+    import pytest
+
+    pytest.importorskip("pypinyin")
+    variants = identity._name_variants("石遵计")
+    assert any("Shi" in v and "Zun" in v for v in variants)
 
 
 def test_proposal_has_nine_sections_and_appendix() -> None:

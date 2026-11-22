@@ -174,8 +174,11 @@ def _required(spec: dict) -> list[str]:
 
 def active(source: str) -> dict | None:
     """返回可用凭据；过期或缺少必填项都返回 None。"""
-    entry = _load().get(source) or {}
+    data = _load()
+    entry = data.get(source) or {}
     if _expired(entry):
+        data.pop(source, None)
+        _save(data)
         return None
     spec = SPECS.get(source, {})
     if spec.get("access") == "subscription":
@@ -242,6 +245,28 @@ def clear(source: str) -> dict:
     data.pop(source, None)
     _save(data)
     return status(source)
+
+
+def clear_expired() -> list[dict]:
+    """删掉已过期的凭据，返回被清理的源；页面可据此弹出重新登录。
+
+    凭据过期后没有保留价值，继续留在本机只会被误用或泄露，所以这里直接删除。
+    """
+    data = _load()
+    removed: list[dict] = []
+    for source in list(data):
+        if source not in SPECS:
+            continue
+        entry = data.get(source) or {}
+        if not _expired(entry):
+            continue
+        spec = SPECS[source]
+        removed.append({"source": source, "label": spec.get("label", source),
+                        "expires": str(entry.get("expires") or "")})
+        data.pop(source, None)
+    if removed:
+        _save(data)
+    return removed
 
 
 def mask(value: str) -> str:

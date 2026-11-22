@@ -3,13 +3,13 @@ $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 $Dist = Join-Path $Root "dist"
 $Py = "C:\Users\1\AppData\Local\Programs\Python\Python313\python.exe"
-$Version = "0.10.0"
+$Version = (Get-Content (Join-Path $Root "dsh-plugin\package.json") -Raw | ConvertFrom-Json).version
 
 if (-not (Test-Path (Join-Path $Dist "litradar-engine.exe"))) {
   Push-Location $Root
   try {
     & $Py -m PyInstaller --noconfirm --clean --onefile --noconsole --name litradar-engine `
-      --paths src --hidden-import yaml --collect-all docx `
+      --paths src --hidden-import yaml --collect-all docx --collect-all pypinyin `
       --distpath (Join-Path $Dist "exe") --workpath (Join-Path $Root "build") `
       packaging\engine_entry.py
     if ($LASTEXITCODE -ne 0) { throw "引擎 EXE 构建失败" }

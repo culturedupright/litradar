@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from pathlib import Path
 
 from .config import HOME
@@ -112,11 +113,16 @@ GROUP_LEVEL = {"1 人": 1, "2–3 人": 2, "4–8 人": 3, "9 人以上": 4,
                "完整梯队（含专职技术员）": 5}
 PROJECT_LEVEL = {"无在研项目": 1, "校级/院级项目": 2, "省部级项目": 3,
                  "国家级项目": 4, "国家级重大/重点项目": 5}
+BUDGET_LEVEL = {"5 万以内": 1, "5–20 万": 2, "20–100 万": 3, "100 万以上": 4}
+PERIOD_LEVEL = {"3 个月": 1, "6 个月": 2, "1 年": 3, "2 年以上": 4}
+PLATFORM_HINT_LEVEL = {"省部级重点实验室/平台": 3, "国家级平台/重点实验室": 4,
+                       "全国重点实验室": 5}
 
 DEFAULTS_IDENTITY = {"unit": "", "department": "", "unit_ror": "", "unit_official": "",
                      "role": "博士生", "org": "省部级重点实验室/平台",
                      "author": "", "author_title": "教授/正高",
                      "author_openalex": "", "author_orcid": "", "author_doi": "",
+                     "author_works_count": "",
                      "lookup_confidence": "", "lookup_note": "",
                      "representative": "", "open_science": "部分开放",
                      "group_size": "4–8 人", "project": "省部级项目"}
@@ -135,23 +141,91 @@ def _level_in(key: str, value: object, default: int = 3) -> int:
         return default
 
 
+def _int(value: object, default: int = 0) -> int:
+    try:
+        return max(0, int(value))  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return default
+
+
+def _research_row(row: dict) -> bool:
+    kind = str(row.get("type") or "").lower()
+    title = str(row.get("title") or "").strip().lower()
+    return kind not in {"erratum", "editorial", "paratext", "letter", "dataset", "peer-review"} \
+        and not title.startswith(("erratum", "correction", "retraction", "editorial"))
+
+
+def evidence_from_works(works: dict, identity: dict | None = None) -> dict:
+    """把 OpenAlex 近作抽样转成可解释的五维证据，不把数量当作质量。"""
+    rows = list((works or {}).get("works") or [])
+    research = [row for row in rows if _research_row(row)]
+    identity = identity or {}
+    total = max(_int((works or {}).get("total")), _int(identity.get("author_works_count")))
+    current = time.gmtime().tm_year
+    recent = [row for row in research if _int(row.get("year")) >= current - 5]
+    corresponding = [row for row in research if row.get("is_corresponding")]
+    first = [row for row in research if row.get("position") == "first"]
+    hint = str((works or {}).get("platform_hint") or "")
+    note = (f"OpenAlex 研究性近作抽样 {len(research)} 篇；"
+            f"标通讯 {len(corresponding)} 篇；第一作者 {len(first)} 篇；"
+            f"总作品 {total or '未取到'}；近 5 年研究性抽样 {len(recent)} 篇")
+    if hint:
+        note += f"；平台线索：{hint}"
+    return {"works_count": total, "sampled": len(rows), "research_sampled": len(research),
+            "recent_works": len(recent),
+            "corresponding_count": len(corresponding), "first_author_count": len(first),
+            "platform_hint": hint, "note": note}
+
+
 def defaults() -> dict:
     base = {"mode": "quick", "identity": dict(DEFAULTS_IDENTITY),
             "dims": {d["key"]: {"level": 3, "source": "auto", "note": ""}
                      for d in DIMENSIONS},
             "conditions": dict(DEFAULTS_CONDITIONS)}
-    base["dims"].update(derive(base["identity"]))
+    base["dims"].update(derive(base["identity"], conditions=base["conditions"]))
     return base
 
 
-def derive(identity: dict) -> dict:
-    """按填写的单位/职称/人数/项目推算五维等级；只做保守映射，不夸大。"""
+def derive(identity: dict, evidence: dict | None = None,
+           conditions: dict | None = None) -> dict:
+    """按填写的单位/职称/人数/项目与公开检索证据推算五维等级。
+
+    规则保持保守：公开元数据只用于确认“有没有持续产出/有没有通讯作者成果”，
+    不按论文数量、引用数或期刊影响因子直接抬档；最终档位仍可在界面逐项改。
+    """
     identity = {**DEFAULTS_IDENTITY, **(identity or {})}
+    conditions = {**DEFAULTS_CONDITIONS, **(conditions or {})}
+    evidence = evidence or {}
     pi = TITLE_LEVEL.get(identity.get("author_title"), 3)
     platform = ORG_LEVEL.get(identity.get("org"), 3)
     foundation = PROJECT_LEVEL.get(identity.get("project"), 3)
     team = GROUP_LEVEL.get(identity.get("group_size"), 3)
     funding = PROJECT_LEVEL.get(identity.get("project"), 3)
+
+    total = max(_int(evidence.get("works_count")), _int(identity.get("author_works_count")))
+    corresponding = _int(evidence.get("corresponding_count"))
+    recent = _int(evidence.get("recent_works"))
+    hint = str(evidence.get("platform_hint") or "")
+    if hint in PLATFORM_HINT_LEVEL:
+        platform = max(platform, PLATFORM_HINT_LEVEL[hint])
+    if total:
+        pi = max(pi, 2)
+    if corresponding:
+        pi = max(pi, 2)
+    if corresponding >= 2:
+        pi = max(pi, 3)
+    if total >= 5 or recent >= 3:
+        foundation = max(foundation, 3)
+    if total >= 15 and PROJECT_LEVEL.get(identity.get("project"), 1) >= 3:
+        foundation = max(foundation, 4)
+    funding = max(funding, BUDGET_LEVEL.get(conditions.get("budget"), 1))
+    if conditions.get("period") == "3 个月":
+        foundation = min(foundation, 3)
+        team = min(team, 3)
+    if conditions.get("wet") == "需外协或合作":
+        platform = min(platform, 3)
+    if conditions.get("wet") == "不做湿实验" and conditions.get("experiment") == "湿实验":
+        platform = min(platform, 3)
     if identity.get("role") == "本科生":
         foundation = min(foundation, 3)
         team = min(team, 4)
@@ -212,10 +286,11 @@ def save(profile: dict) -> dict:
     return clean
 
 
-def quick_derive(profile: dict) -> dict:
+def quick_derive(profile: dict, evidence: dict | None = None) -> dict:
     """只改“自动推算”的维度，手动改过的档位保留。"""
     profile = _merge(profile)
-    for key, item in derive(profile["identity"]).items():
+    derived = derive(profile["identity"], evidence, profile["conditions"])
+    for key, item in derived.items():
         if profile["dims"][key].get("source") == "auto":
             profile["dims"][key]["level"] = item["level"]
             profile["dims"][key]["note"] = ""

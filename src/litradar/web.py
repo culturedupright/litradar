@@ -19,6 +19,59 @@ from .sources import search_all
 TASKS: dict[str, dict] = {}
 LOCK = threading.Lock()
 
+
+def _derive_team(payload: dict) -> tuple[dict, dict, str]:
+    """把页面填的条件与可检索到的作者证据合起来推算五维。
+
+    只有高置信、唯一的作者候选才会自动带入；候选不唯一时不替用户选人。
+    """
+    profile = team.quick_derive(payload.get("profile") or {})
+    evidence: dict = {}
+    note = ""
+    try:
+        identity_row = profile.get("identity") or {}
+        author_id = str(identity_row.get("author_openalex") or "")
+        if not author_id and identity_row.get("author") and identity_row.get("unit"):
+            found = identity.lookup("search", {
+                "name": identity_row.get("author"), "unit": identity_row.get("unit"),
+                "orcid": identity_row.get("author_orcid") or "",
+            })
+            if found.get("error"):
+                note = str(found["error"])
+            else:
+                authors = found.get("authors") or []
+                high = [row for row in authors if row.get("confidence") == "高"]
+                if len(high) == 1:
+                    row = high[0]
+                    author_id = str(row.get("id") or "")
+                    identity_row["author_openalex"] = author_id
+                    identity_row["author_orcid"] = str(row.get("orcid") or "")
+                    identity_row["author_works_count"] = str(row.get("works_count") or "")
+                    identity_row["lookup_confidence"] = "高"
+                    identity_row["lookup_note"] = ("OpenAlex " + author_id +
+                                                  "；作者候选自动带入，仍需确认")
+                    note = "已用唯一高置信作者候选补充证据"
+                elif authors:
+                    note = "作者候选不唯一，未自动选人；先在上方确认作者，再重新推算"
+        if author_id:
+            works = identity.author_works(author_id, identity_row.get("author") or "",
+                                          identity_row.get("unit") or "",
+                                          identity_row.get("unit_ror") or "")
+            evidence = team.evidence_from_works(works, identity_row)
+            if not identity_row.get("representative") and works.get("representative_suggestion"):
+                identity_row["representative"] = str(works["representative_suggestion"])[:220]
+            if not identity_row.get("org") and works.get("platform_hint"):
+                identity_row["org"] = str(works["platform_hint"])
+            note = "；".join(x for x in (note, evidence.get("note", "")) if x)
+        elif not note:
+            note = "未取到作者 ID；先按填写推算，填单位与通讯作者后可再检索补充"
+        profile = team.quick_derive(profile, evidence)
+    except Exception as exc:  # noqa: BLE001 - 检索失败退回规则推算
+        note = f"检索补充失败，已按填写推算：{str(exc)[:120]}"
+        profile = team.quick_derive(payload.get("profile") or {})
+    return profile, evidence, note
+
+
 PAGE = """<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -147,7 +200,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
 
 <div class="panel">
 <h2 class="sect">课题组条件（基金评审五维 + 研究条件）</h2>
-<p class="hint">先填单位与通讯作者姓名，点“检索核对”：插件用 ROR 规范单位、用 OpenAlex 列作者与近作，再由你确认。五维按固定判据推算，可逐项改档位；成果评价按 DORA 原则。</p>
+<p class="hint">先填单位与通讯作者姓名，点“检索核对”：插件用 ROR 规范单位、用 OpenAlex 列作者与近作，再由你确认。五维按固定判据推算，可逐项改档位；成果评价按 DORA 原则。这里填的内容只用于本次推算，不写入本机文件。</p>
 <div class="grid" id="teamquick"></div>
 <div class="lookup">
   <div class="actions" style="margin:0 0 8px">
@@ -165,13 +218,12 @@ button:disabled{opacity:.45;cursor:not-allowed}
   <div id="lookbox"></div>
 </div>
 <div class="actions">
-  <button class="mini" id="teamderive">按填写重新推算</button>
-  <button class="mini" id="teamsave">保存</button>
-  <span class="hint" id="teamhint">五维默认随填写自动更新</span>
+  <button class="mini" id="teamderive">检索补充并重新推算</button>
+  <span class="hint" id="teamhint">五维随单位、作者与条件填写更新；本次填写只在页面内，刷新后恢复默认</span>
 </div>
 <div id="teamdims" style="margin-top:14px"></div>
 <h3 class="sect" style="margin-top:16px">研究条件</h3>
-<p class="hint">研究类型、数据来源、平台使用、经费与周期、伦理合规、报告规范和数据管理逐项核对；判据写进开题报告。</p>
+<p class="hint">研究类型、数据来源、平台使用、经费与周期、伦理合规、报告规范和数据管理逐项核对；判据写进开题报告。这些条件只用于本次运行，不落盘。</p>
 <div class="grid" id="teamcond"></div>
 <div class="actions"><span class="hint" id="teamscore"></span></div>
 </div>
@@ -200,16 +252,25 @@ button:disabled{opacity:.45;cursor:not-allowed}
 <script>
 let taskId=null,timer=null;
 const $=id=>document.getElementById(id);
-let CRED=null, DIMS=[], SCHEMA=null, TEAM=null, VERIFIED={}, LOOK=null;
+let CRED=null, DIMS=[], SCHEMA=null, TEAM=null, VERIFIED={}, LOOK=null, STALE=[];
+let teamTimer=null, teamSeq=0;
 function loadSettings(){
   fetch("/api/settings").then(r=>r.json()).then(d=>{
     buildOecd(d.oecd||[]);
+    STALE=(d.expired_sources||[]).map(x=>x.source);
     renderSources(d.sources||[]);
     SCHEMA=d.team.schema||{identity:[],dimensions:[],conditions:[]};
     DIMS=SCHEMA.dimensions||[];
     TEAM=d.team.profile||{identity:{},dims:{},conditions:{}};
     VERIFIED=syncVerified(TEAM.identity||{});
     renderTeam();
+    if(STALE.length){
+      const src=(d.sources||[]).find(x=>x.source===STALE[0]);
+      if(src){
+        openCred(src);
+        $("credmsg").textContent="登录信息已过期，旧凭据已自动清除；请重新填写并保存。";
+      }
+    }
   }).catch(e=>{$("sources").textContent="读取配置失败："+e;});
 }
 function buildOecd(rows){
@@ -238,6 +299,7 @@ function renderSources(list){
     const badge=document.createElement("span");badge.className="badge";
     if(s.access==="subscription"){badge.textContent="校园网/VPN";badge.classList.add("ok");}
     else if(s.access==="open"){badge.textContent="免登录";badge.classList.add("ok");}
+    else if(STALE.includes(s.source)){badge.textContent="待重新登录";}
     else if(s.expired){badge.textContent="已过期，需重新配置";badge.classList.add("bad");}
     else if(s.configured){badge.textContent="已连接";badge.classList.add("ok");}
     else {badge.textContent="未配置";badge.classList.add("bad");}
@@ -264,6 +326,7 @@ function openCred(s){
     const lab=document.createElement("label");lab.textContent=f.label;
     const input=document.createElement("input");input.id="cred_"+f.key;
     input.type=(f.key==="api_key")?"password":"text";
+    input.autocomplete="off";
     input.placeholder=(f.key==="expires")?"YYYY-MM-DD":"";
     wrap.append(lab,input);fields.appendChild(wrap);
   });
@@ -276,21 +339,26 @@ $("credsave").onclick=()=>{
   fetch("/api/credentials",{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({source:CRED.source,values})}).then(r=>r.json()).then(d=>{
       if(d.error){$("credmsg").textContent=d.error;return;}
-      $("credmsg").textContent="已保存到本机（不回显明文）";
+      (CRED.fields||[]).forEach(f=>{const el=$("cred_"+f.key);if(el)el.value="";});
+      $("credmsg").textContent="已保存到本机（长期有效；过期会自动清除，不回显明文）";
       loadSettings();
     }).catch(e=>{$("credmsg").textContent=String(e);});
 };
 $("credclear").onclick=()=>{
   if(!CRED)return;
   fetch("/api/credentials/clear",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({source:CRED.source})}).then(()=>{$("credmsg").textContent="已清除";loadSettings();});
+    body:JSON.stringify({source:CRED.source})}).then(()=>{
+      (CRED.fields||[]).forEach(f=>{const el=$("cred_"+f.key);if(el)el.value="";});
+      $("credmsg").textContent="已清除";
+      loadSettings();
+    });
 };
 $("credtest").onclick=()=>{
   if(!CRED)return;
   $("credmsg").textContent="正在用当前保存的 Key 请求一次…";
   fetch("/api/credentials/test",{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({source:CRED.source})}).then(r=>r.json()).then(d=>{
-      $("credmsg").textContent=d.ok?("连接正常，返回 "+d.count+" 条"):("连接失败："+(d.error||"未知原因"));
+      $("credmsg").textContent=d.ok?("连接正常，返回 "+d.count+" 条"):("连接未通过："+(d.error||"未知原因"));
     }).catch(e=>{$("credmsg").textContent=String(e);});
 };
 function esc(s){
@@ -298,7 +366,7 @@ function esc(s){
 }
 function syncVerified(id){
   const keys=["unit_ror","unit_official","author_openalex","author_orcid","author_doi",
-    "lookup_confidence","lookup_note","author_name"];
+    "author_works_count","lookup_confidence","lookup_note","author_name"];
   const out={};keys.forEach(k=>{if(id&&id[k])out[k]=id[k];});return out;
 }
 function deptFromUnit(original, official, zh){
@@ -339,6 +407,7 @@ function selectAuthor(a){
   VERIFIED.author_openalex=a.id||"";
   VERIFIED.author_orcid=a.orcid||"";
   VERIFIED.author_name=a.name||"";
+  VERIFIED.author_works_count=String(a.works_count||"");
   VERIFIED.author_doi="";
   VERIFIED.lookup_confidence=a.confidence||"";
   VERIFIED.lookup_note="OpenAlex "+(a.id||"")+(a.orcid?("；ORCID "+a.orcid):"")+
@@ -503,6 +572,7 @@ function renderTeam(){
       input.value=(TEAM.identity||{})[f.key]||"";
     }
     input.id="id_"+f.key;
+    input.onchange=scheduleTeam;
     wrap.append(lab,input);quick.appendChild(wrap);
   });
   const dims=$("teamdims");dims.innerHTML="";
@@ -548,13 +618,20 @@ function renderTeam(){
     const sel=document.createElement("select");sel.id="cond_"+c.key;
     c.options.forEach(v=>{const o=document.createElement("option");o.value=v;o.textContent=v;sel.appendChild(o);});
     sel.value=(TEAM.conditions||{})[c.key]||c.options[0];
-    sel.onchange=scoreTeam;
+    sel.onchange=()=>{scoreTeam();scheduleTeam();};
     wrap.append(lab,sel);cond.appendChild(wrap);
   });
   scoreTeam();
 }
 function teamIdentity(){
   const out={};(SCHEMA.identity||[]).forEach(f=>{out[f.key]=($("id_"+f.key)||{}).value||"";});
+  if(VERIFIED.unit_official&&out.unit!==VERIFIED.unit_official){
+    VERIFIED.unit_ror="";VERIFIED.unit_official="";VERIFIED.lookup_confidence="";
+  }
+  if(VERIFIED.author_name&&out.author!==VERIFIED.author_name){
+    VERIFIED.author_openalex="";VERIFIED.author_orcid="";VERIFIED.author_works_count="";
+    VERIFIED.lookup_confidence="";VERIFIED.author_doi="";
+  }
   Object.assign(out,VERIFIED);
   return out;
 }
@@ -574,22 +651,22 @@ function scoreTeam(){
   const band=s>=4.2?"强":(s>=3.0?"中":"弱");
   $("teamscore").textContent="当前五维综合 "+s.toFixed(2)+" / 5（"+band+"）";
 }
-$("teamderive").onclick=()=>{
+function scheduleTeam(){
+  clearTimeout(teamTimer);
+  teamTimer=setTimeout(()=>deriveTeam(false),650);
+}
+function deriveTeam(manual){
+  const seq=++teamSeq;
+  if(manual)$("teamhint").textContent="正在核对作者近作、单位平台与五维判据…";
   fetch("/api/team/derive",{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({profile:teamProfile()})}).then(r=>r.json()).then(d=>{
-      if(d.error){$("teamhint").textContent=d.error;return;}
+      if(seq!==teamSeq)return;
+      if(d.error){if(manual)$("teamhint").textContent=d.error;return;}
       TEAM=d.profile;VERIFIED=syncVerified(TEAM.identity||{});renderTeam();
-      $("teamhint").textContent="已按填写推算（手动改过的档位保留）";
-    }).catch(e=>{$("teamhint").textContent=String(e);});
-};
-$("teamsave").onclick=()=>{
-  fetch("/api/team",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({profile:teamProfile()})}).then(r=>r.json()).then(d=>{
-      if(d.error){$("teamhint").textContent=d.error;return;}
-      TEAM=d.profile;VERIFIED=syncVerified(TEAM.identity||{});renderTeam();
-      $("teamhint").textContent=`已保存 · 综合 ${d.evaluation.score} / 5（${d.evaluation.band}）`;
-    });
-};
+      $("teamhint").textContent=d.note||"已按填写重新推算（手动改过的档位保留）";
+    }).catch(e=>{if(manual)$("teamhint").textContent=String(e);});
+}
+$("teamderive").onclick=()=>deriveTeam(true);
 $("looksearch").onclick=lookupSearch;
 $("lookdoicheck").onclick=lookupDoi;
 loadSettings();
@@ -828,9 +905,12 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
         if route.path == "/api/settings":
+            stale = credentials.clear_expired()
+            base_team = team.defaults()
             self._json({"sources": credentials.all_status(),
-                        "team": {"profile": team.load(), "schema": team.schema(),
-                                 "evaluation": team.evaluate()},
+                        "expired_sources": stale,
+                        "team": {"profile": base_team, "schema": team.schema(),
+                                 "evaluation": team.evaluate(base_team)},
                         "oecd": oecd.as_json()})
             return
         if route.path == "/api/proposal":
@@ -902,12 +982,13 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": f"身份检索失败：{str(exc)[:200]}"}, 500)
             return
         if path == "/api/team":
-            profile = team.save(payload.get("profile") or {})
+            profile = team.quick_derive(payload.get("profile") or {})
             self._json({"profile": profile, "evaluation": team.evaluate(profile)})
             return
         if path == "/api/team/derive":
-            profile = team.save(team.quick_derive(payload.get("profile") or {}))
-            self._json({"profile": profile, "evaluation": team.evaluate(profile)})
+            profile, evidence, note = _derive_team(payload)
+            self._json({"profile": profile, "evaluation": team.evaluate(profile),
+                        "evidence": evidence, "note": note})
             return
         if path != "/api/run":
             self._json({"error": "not found"}, 404)
@@ -961,7 +1042,7 @@ class Handler(BaseHTTPRequestHandler):
                     domain_key=payload.get("domain_key", "auto"),
                     sources_list=payload.get("sources") or ["europepmc"],
                     oecd_code=str(payload.get("oecd") or ""),
-                    team_profile=payload.get("team_profile") or team.load(),
+                    team_profile=payload.get("team_profile") or team.defaults(),
                     owner=str(payload.get("owner") or ""),
                     progress=progress,
                     note=note,
