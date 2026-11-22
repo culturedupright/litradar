@@ -4,7 +4,21 @@
 
 输入一句话方向（可选平台、预算、周期），输出六件东西：领域全景、证据矩阵、单篇卡片、图表复刻清单、方向候选、开题卡。
 
-**当前状态：`v0.4.0`。** 整条流水线可跑：检索 → 抓 OA 全文/图注 → 抽结构化卡片 → 跨文献聚合 → 六件套简报 → 本地 Web 界面，并已挂进 DeepSeek Harness（DSH）左侧栏。模型由 DSH 内部模型目录自动发现，Key 复用 DSH 凭据。
+**当前状态：`v0.5.0`。** 整条流水线可跑：检索 → 抓 OA 全文/图注 → 抽结构化卡片 → 引文校验 → 跨文献聚合 → 六件套简报 → 本地 Web 界面，并已挂进 DeepSeek Harness（DSH）左侧栏。模型由 DSH 内部模型目录自动发现，Key 复用 DSH 凭据，本机实测可选 5 个 provider、424 个模型，默认 `deepseek-flash`。
+
+一次真实运行（黄花棘豆内生真菌抗锈病）：检索 13 篇 → 抓取全文 10 篇 → 生成 8 张卡片 → 聚合 7 张 → 51,646 tokens → 52 KB 六件套简报。没有一张卡片编造引文：命中不到原文的字段一律降级为「待核」，不进结论。
+
+## 长什么样
+
+| 面板表单 | 实时进度 |
+|---|---|
+| ![面板](docs/screenshots/panel.png) | ![进度](docs/screenshots/progress.png) |
+
+![架构](docs/screenshots/architecture.png)
+
+## 为什么叫「题眼」
+
+「题眼」是语文里的说法：一篇文章最要紧的那一句。文献也一样——作判断的依据不在摘要的套话里，而在支撑结论的那一句原文。LitRadar 要做的就是把这句「眼」找出来，再把它的位置钉死；Radar 指扫描与定位。
 
 ## 它解决什么
 
@@ -21,7 +35,7 @@ LitRadar 把这几件事做成一条流水线，每条结论都要求带证据�
 
 ### 方式一：装成 DSH 插件（推荐）
 
-拿 `dist/` 目录（`scripts/pack.ps1` 生成）里的东西，在 PowerShell 里：
+到 [Releases](../../releases) 下载 `litradar-dsh-plugin-0.6.1.tgz`、`litradar-engine.zip`、`install.ps1`、`uninstall.ps1`，放同一目录，在 PowerShell 里：
 
 ```powershell
 .\install.ps1 -Profile both      # web + 桌面版都装
@@ -92,6 +106,7 @@ Windows 下可直接用仓库根目录的 `litradar.cmd`（走系统 Python，�
 | v0.2.0 | OA 全文与图注抓取（JATS XML + `cloudpmc-urn` CDN）、引用句配对 | ✅ |
 | v0.3.0 | 结构化卡片抽取、领域聚合、六件套简报、本地 Web 界面、DSH 插件 | ✅ |
 | v0.4.0 | DSH 模型自动发现 + provider 路由、可分发包（tgz + 引擎 zip + 安装/卸载脚本） | ✅ |
+| v0.5.0 | 进度面板实时活动日志与心跳、重试可见、输入框示例中性化、年份改起止日期选择器 | ✅ |
 | 下一步 | 并行抓取、图表复刻清单自动生成、中文库接入 | 计划中 |
 
 ## 仓库结构
