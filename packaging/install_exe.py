@@ -13,7 +13,7 @@ import zipfile
 from pathlib import Path
 
 APP_NAME = "LitRadar"
-VERSION = "0.10.1"
+VERSION = "0.10.2"
 PLUGIN_NAME = "litradar-dsh-plugin"
 PROFILE_NAMES = ("desktop", "web")
 
@@ -55,10 +55,27 @@ def detect_profiles(dsh_root: Path) -> list[tuple[str, Path]]:
 
 
 def find_python() -> str:
+    """优先找用户自己装的 Python；安装器进程自带的 sandbox Python 不写进配置。"""
+    home = Path.home()
+    candidates = [
+        home / "AppData" / "Local" / "Programs" / "Python" / "Python313" / "python.exe",
+        home / "AppData" / "Local" / "Programs" / "Python" / "Python312" / "python.exe",
+        Path("C:/Python313/python.exe"),
+        Path("C:/Python312/python.exe"),
+        Path("C:/Program Files/Python313/python.exe"),
+        Path("C:/Program Files/Python312/python.exe"),
+    ]
+    for path in candidates:
+        if path.is_file():
+            return str(path)
     for name in ("python", "python3", "py"):
         path = shutil.which(name)
-        if path:
-            return path
+        if not path:
+            continue
+        low = path.lower()
+        if "sandbox" in low or "task-mode" in low or "doubao" in low:
+            continue
+        return path
     return ""
 
 
