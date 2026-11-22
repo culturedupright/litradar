@@ -69,9 +69,52 @@ GENERAL_FIELDS = {
     "limitations": "作者承认的局限或明显短板",
 }
 
+ENGINEERING_FIELDS = {
+    "design": "研究设计与方案（建模/仿真/试验/原型验证）",
+    "system": "研究对象与系统边界（结构、部件、流程或网络）",
+    "factors": "设计变量、工况或控制参数",
+    "controls": "基线方案、对照工况或行业标准",
+    "sample_size": "样本量/试验次数/仿真工况数，没有就写 待核",
+    "omics": "测试、表征或评价手段（台架、仿真、监测、指标计算）",
+    "outcomes": "性能指标（效率、精度、寿命、能耗、可靠度等）",
+    "conclusion": "作者的核心结论（一句话）",
+    "limitations": "作者承认的局限或工程适用边界",
+}
+
+SOCIAL_FIELDS = {
+    "design": "研究设计（理论推演/案例/问卷/实验/二手数据）",
+    "system": "研究对象与分析单元（人群、组织、市场、政策文本）",
+    "factors": "核心变量、机制或政策工具",
+    "controls": "对照、比较组或反事实设定",
+    "sample_size": "样本量/案例数/数据年份跨度，没有就写 待核",
+    "omics": "数据来源与分析方法（统计、计量、质性编码、文本分析）",
+    "outcomes": "主要结果或效应量",
+    "conclusion": "作者的核心结论（一句话）",
+    "limitations": "作者承认的局限（外推性、内生性、样本偏差）",
+}
+
+HUMANITIES_FIELDS = {
+    "design": "研究路径（文本细读/史料考证/比较研究/阐释）",
+    "system": "研究对象与材料（文本、档案、作品、语料）",
+    "factors": "核心问题、概念或历史语境",
+    "controls": "参照文本、版本或对照史料",
+    "sample_size": "材料范围与数量（篇/卷/件/年代跨度）",
+    "omics": "研究方法与证据类型（版本比对、引文、档案编号）",
+    "outcomes": "主要论点与证据链",
+    "conclusion": "作者的核心结论（一句话）",
+    "limitations": "作者承认的局限或解释边界",
+}
+
+
 MATERIALS_LABELS = {**BASE_LABELS, "system": "体系与结构", "factors": "工艺参数",
                     "controls": "对照基线", "omics": "表征检测", "outcomes": "性能指标"}
 BIOMED_LABELS = {**BASE_LABELS, "system": "研究对象", "omics": "检测层", "outcomes": "结局指标"}
+ENGINEERING_LABELS = {**BASE_LABELS, "system": "系统与边界", "factors": "设计变量/工况",
+                      "omics": "测试与评价", "outcomes": "性能指标"}
+SOCIAL_LABELS = {**BASE_LABELS, "system": "研究对象/分析单元", "factors": "核心变量",
+                 "omics": "数据与方法", "outcomes": "结果/效应"}
+HUMANITIES_LABELS = {**BASE_LABELS, "system": "材料与文本", "factors": "核心问题/语境",
+                     "omics": "证据类型", "outcomes": "论点与证据链"}
 
 
 @dataclass(frozen=True)
@@ -181,6 +224,54 @@ BIOMED = Domain(
     query_exclusion='"memristor" OR "perovskite" OR "semiconductor" OR "wafer" OR "rhizosphere"',
 )
 
+ENGINEERING = Domain(
+    key="engineering",
+    label="工程与技术",
+    framework="RDVM（Requirement–Design–Validation–Metric）",
+    framework_hint=("把方向拆成四格：R 需求/工况、D 设计与方案、V 验证方式（仿真/台架/现场）、"
+                    "M 性能指标；填不出来的留空。"),
+    lexicon=(
+        "engineering", "design", "simulation", "model", "experiment", "prototype",
+        "optimization", "control", "sensor", "system", "performance", "efficiency",
+        "reliability", "testing", "fabrication", "algorithm", "network", "energy",
+        "thermal", "structural", "fluid", "robot", "manufacturing", "process",
+        "工程", "设计", "仿真", "建模", "试验", "优化", "控制", "传感", "系统",
+        "性能", "效率", "可靠", "测试", "制造", "工艺", "结构", "流体", "热能",
+    ),
+    card_fields=ENGINEERING_FIELDS,
+    card_labels=ENGINEERING_LABELS,
+    analyst_role=("你是工程与技术方向的课题分析师。按「需求—设计—验证—指标」归纳，"
+                  "不要套用农学或临床的字段语义。"),
+)
+
+SOCIAL = Domain(
+    key="social",
+    label="社会科学",
+    framework="PMEP（Phenomenon–Mechanism–Evidence–Policy）",
+    framework_hint=("把方向拆成四格：P 现象/问题、M 机制或解释、E 数据与识别策略、"
+                    "P 政策/应用含义；填不出来的留空。"),
+    lexicon=(),
+    card_fields=SOCIAL_FIELDS,
+    card_labels=SOCIAL_LABELS,
+    analyst_role="你是社会科学方向的课题分析师，按现象—机制—证据—政策归纳。",
+    min_score=0.0,
+    gate=False,
+)
+
+HUMANITIES = Domain(
+    key="humanities",
+    label="人文与艺术",
+    framework="TCIA（Text–Context–Interpretation–Archive）",
+    framework_hint=("把方向拆成四格：T 文本/作品、C 语境、I 解释框架、A 史料/档案；"
+                    "填不出来的留空。"),
+    lexicon=(),
+    card_fields=HUMANITIES_FIELDS,
+    card_labels=HUMANITIES_LABELS,
+    analyst_role="你是人文与艺术方向的课题分析师，按文本—语境—阐释—史料归纳。",
+    min_score=0.0,
+    gate=False,
+)
+
 GENERAL = Domain(
     key="general",
     label="通用（未识别学科）",
@@ -195,7 +286,9 @@ GENERAL = Domain(
     gate=False,
 )
 
-DOMAINS = {"materials": MATERIALS, "agri": AGRI, "biomed": BIOMED, "general": GENERAL}
+DOMAINS = {"materials": MATERIALS, "agri": AGRI, "biomed": BIOMED,
+           "engineering": ENGINEERING, "social": SOCIAL, "humanities": HUMANITIES,
+           "general": GENERAL}
 
 
 def contains(text: str, term: str) -> bool:

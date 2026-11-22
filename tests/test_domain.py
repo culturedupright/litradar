@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from litradar import oecd
 from litradar.cards import schema_hint, system_prompt
-from litradar.domain import AGRI, GENERAL, MATERIALS, classify
+from litradar.domain import (AGRI, ENGINEERING, GENERAL, HUMANITIES, MATERIALS,
+                             SOCIAL, by_key, classify)
 from litradar.relevance import audit, judge, relax_query, topic_terms
 from litradar.report import build_markdown
 
@@ -20,6 +22,25 @@ def test_classify_biomed() -> None:
     assert classify("肿瘤患者队列的免疫治疗响应").key == "biomed"
 
 
+def test_every_oecd_subfield_has_a_domain_profile() -> None:
+    codes = [f.code for f in oecd.FIELDS]
+    assert len(codes) == 42
+    assert all(oecd.domain_hint(code) for code in codes)
+    assert oecd.domain_hint("2.1") == "engineering"
+    assert oecd.domain_hint("5.2") == "social"
+    assert oecd.domain_hint("6.2") == "humanities"
+    assert oecd.domain_hint("3.2") == "biomed"
+    assert oecd.domain_hint("4.1") == "agri"
+    assert oecd.domain_hint("2.5") == "materials"
+
+
+def test_new_domain_profiles_are_generic() -> None:
+    assert by_key("engineering") is ENGINEERING
+    assert ENGINEERING.framework.startswith("RDVM")
+    assert SOCIAL.gate is False and HUMANITIES.gate is False
+    assert HUMANITIES.card_labels["system"] == "材料与文本"
+    assert "盆栽" not in ENGINEERING.card_fields["design"]
+    assert "文本" in HUMANITIES.card_fields["system"]
 def test_classify_falls_back_to_general() -> None:
     assert classify("某个我还没想清楚的方向") is GENERAL
 

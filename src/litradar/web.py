@@ -97,15 +97,13 @@ button:disabled{opacity:.45;cursor:not-allowed}
 <div class="panel">
 <div class="grid">
   <div class="field full">
-    <label>研究方向（必填，一句话）</label>
-    <textarea id="direction" placeholder="例：忆阻器类脑神经网络（材料）；根际微生物组与连作障碍（农学）"></textarea>
+    <label>研究方向（必填，按“研究对象 + 科学问题 + 目标/方法”写一句话）</label>
+    <textarea id="direction" placeholder="例：高温合金涡轮盘的组织演化与疲劳寿命预测
+例：城市热岛的形成机制与调控路径
+例：平台经济中算法定价的福利效应与监管设计"></textarea>
   </div>
-  <div class="field"><label>学科判定</label><select id="domain">
-    <option value="auto">自动判定</option><option value="materials">材料与器件</option>
-    <option value="agri">植物—微生物/农学</option><option value="biomed">生物医学</option>
-    <option value="general">通用</option></select></div>
-  <div class="field"><label>OECD 大类</label><select id="oecd_major"><option value="">不指定</option></select></div>
-  <div class="field"><label>OECD 子类（Frascati 2007）</label><select id="oecd_sub"><option value="">不指定</option></select></div>
+  <div class="field span2"><label>OECD 学科大类（Frascati 2007，必选）</label><select id="oecd_major"><option value="">请选择</option></select></div>
+  <div class="field"><label>OECD 子类（必选，决定检索口径与卡片语义）</label><select id="oecd_sub"><option value="">先选大类</option></select></div>
   <div class="field span2"><label>年份范围（起 — 止）</label>
     <div class="range">
       <input id="year_from" type="date" value="2015-01-01" min="1900-01-01" max="2100-12-31">
@@ -184,10 +182,10 @@ function loadSettings(){
   }).catch(e=>{$("sources").textContent="读取配置失败："+e;});
 }
 function buildOecd(rows){
-  const major=$("oecd_major");major.innerHTML='<option value="">不指定</option>';
+  const major=$("oecd_major");major.innerHTML='<option value="">请选择</option>';
   rows.forEach(m=>{const o=document.createElement("option");o.value=m.code;o.textContent=m.label;major.appendChild(o);});
   major.onchange=()=>{
-    const sub=$("oecd_sub");sub.innerHTML='<option value="">不指定（按方向自动判定）</option>';
+    const sub=$("oecd_sub");sub.innerHTML='<option value="">请选择子类</option>';
     const row=rows.find(m=>m.code===major.value);
     (row?row.children:[]).forEach(c=>{const o=document.createElement("option");o.value=c.code;o.textContent=c.label;sub.appendChild(o);});
   };
@@ -468,6 +466,7 @@ function poll(){
 $("run").onclick=()=>{
   const direction=$("direction").value.trim();
   if(!direction){alert("请先写一个研究方向");return;}
+  if(!$("oecd_sub").value){alert("请选择 OECD 子类：它决定检索口径与卡片字段");return;}
   const from=$("year_from").value, to=$("year_to").value;
   if(!from||!to){alert("请选择年份范围的起止日期");return;}
   const fy=+from.slice(0,4), ty=+to.slice(0,4);
@@ -479,7 +478,7 @@ $("run").onclick=()=>{
     .filter(c=>c.checked).map(c=>c.id.replace("src_",""));
   if(!sources.length){alert("至少勾一个检索源");return;}
   const cond=teamConditions();
-  const payload={direction,domain_key:$("domain").value,platform:cond.experiment,budget:cond.budget,period:cond.period,
+  const payload={direction,domain_key:"auto",platform:cond.experiment,budget:cond.budget,period:cond.period,
     wet_lab:cond.wet,years:`${fy}-${ty}`,search_limit:+$("search").value,
     fetch_limit:+$("fetch").value,card_limit:+$("cards").value,model_name:$("model").value,
     sources,oecd:$("oecd_sub").value,team_profile:teamProfile(),owner:$("owner").value};

@@ -32,6 +32,21 @@ MAJOR_EN: dict[str, str] = {
     "6": "Humanities and the arts",
 }
 
+# 42 个子类全部映射到内部归纳档案；映射依据是学科对象与方法，不是项目经历。
+HINTS: dict[str, str] = {
+    "1.1": "general", "1.2": "engineering", "1.3": "materials", "1.4": "materials",
+    "1.5": "general", "1.6": "agri", "1.7": "general",
+    "2.1": "engineering", "2.2": "materials", "2.3": "engineering", "2.4": "materials",
+    "2.5": "materials", "2.6": "biomed", "2.7": "engineering", "2.8": "engineering",
+    "2.9": "engineering", "2.10": "materials", "2.11": "engineering",
+    "3.1": "biomed", "3.2": "biomed", "3.3": "biomed", "3.4": "biomed", "3.5": "biomed",
+    "4.1": "agri", "4.2": "agri", "4.3": "agri", "4.4": "agri", "4.5": "agri",
+    "5.1": "social", "5.2": "social", "5.3": "social", "5.4": "social", "5.5": "social",
+    "5.6": "social", "5.7": "social", "5.8": "social", "5.9": "social",
+    "6.1": "humanities", "6.2": "humanities", "6.3": "humanities",
+    "6.4": "humanities", "6.5": "humanities",
+}
+
 
 @dataclass(frozen=True)
 class Field:
@@ -227,8 +242,12 @@ def label_full(code: str) -> str:
 
 
 def domain_hint(code: str) -> str:
-    field = get(code)
-    return field.domain_hint if field else "general"
+    """子类 → 内部归纳档案。覆盖全部 42 个子类，不按“以前做过的题”临时加。
+
+    materials / agri / biomed / engineering / social / humanities / general
+    只决定卡片字段语义与闸门口径，不改变 OECD 分类本身。
+    """
+    return HINTS.get(code, "general")
 
 
 def search_terms(code: str) -> list[str]:

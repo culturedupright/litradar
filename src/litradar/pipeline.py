@@ -105,13 +105,12 @@ def run_pipeline(direction: str, *, platform: str = "不限", budget: str = "不
     tokens = 0
     source_stats: list[dict] = []
 
-    if domain_key and domain_key != "auto":
+    if field_code:
+        domain = by_key(oecd.domain_hint(field_code))
+    elif domain_key and domain_key != "auto":
         domain = by_key(domain_key)
     else:
         domain = classify(direction)
-        hint = oecd.domain_hint(field_code) if field_code else "general"
-        if domain.key == "general" and hint != "general":
-            domain = by_key(hint)
     _step(progress, "判定学科", f"{domain.label}；归纳口径 {domain.framework}", 2)
     _n(note, f"学科判定：{domain.label}（闸门 {'开' if domain.gate else '关'}）"
              + (f"；OECD 分类：{oecd.label(field_code)}" if field_code else ""))
