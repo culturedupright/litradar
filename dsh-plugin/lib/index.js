@@ -46,8 +46,9 @@ function pythonPath() {
   const candidates = [
     process.env.LITRADAR_PYTHON,
     config.python,
-    "C:\\Users\\1\\AppData\\Local\\Programs\\Python\\Python313\\python.exe",
     "python",
+    "python3",
+    "py",
   ].filter(Boolean);
   for (const candidate of candidates) {
     if (candidate === "python") return candidate;

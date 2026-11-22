@@ -16,6 +16,8 @@ try {
 $Stage = Join-Path $Dist "_stage"
 New-Item -ItemType Directory -Force -Path $Stage | Out-Null
 Copy-Item (Join-Path $Root "src") $Stage -Recurse
+Get-ChildItem -Path $Stage -Recurse -Directory -Filter "__pycache__" | Remove-Item -Recurse -Force
+Get-ChildItem -Path $Stage -Recurse -File -Include *.pyc,*.pyo | Remove-Item -Force
 Copy-Item (Join-Path $Root "pyproject.toml") $Stage
 Copy-Item (Join-Path $Root "litradar.cmd") $Stage
 Copy-Item (Join-Path $Root "run.ps1") $Stage

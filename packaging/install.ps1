@@ -20,7 +20,12 @@ Expand-Archive -Path $EngineZip -DestinationPath $EngineDir -Force
 if (-not $Python) {
   $Python = (Get-Command python -ErrorAction SilentlyContinue).Source
   if (-not $Python -or $Python -like "*WindowsApps*") {
-    $Python = "C:\Users\1\AppData\Local\Programs\Python\Python313\python.exe"
+    $found = Get-ChildItem "$env:LOCALAPPDATA\Programs\Python" -Filter "python.exe" -Recurse -ErrorAction SilentlyContinue |
+      Sort-Object FullName -Descending | Select-Object -First 1
+    if ($found) { $Python = $found.FullName }
+  }
+  if (-not $Python -or $Python -like "*WindowsApps*") {
+    throw "没找到可用的 Python。请先装 Python 3.10+ 并勾选 Add to PATH，或重跑：.\install.ps1 -Python `"C:\你的\python.exe`""
   }
 }
 

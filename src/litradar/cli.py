@@ -128,10 +128,14 @@ def cmd_run(args: argparse.Namespace) -> int:
         card_limit=args.card_limit,
         model_name=args.model,
         db_path=args.db,
+        domain_key=args.domain,
         progress=progress,
     )
     print(f"\n简报：{result['report']}")
-    print(f"卡片 {result['cards']} 张 / 全文 {result['fetched']} 篇 / tokens {result['tokens']}")
+    print(f"候选 {result['found']} 篇 / 同域 {result.get('kept', result['found'])} 篇"
+          f" / 挡掉 {result.get('dropped', 0)} 篇"
+          f" / 全文 {result['fetched']} 篇 / 卡片 {result['cards']} 张"
+          f" / tokens {result['tokens']}")
     return 0
 
 
@@ -211,6 +215,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--fetch-limit", type=int, default=8)
     p_run.add_argument("--card-limit", type=int, default=8)
     p_run.add_argument("--model", default="deepseek")
+    p_run.add_argument("--domain", default="auto",
+                       choices=["auto", "materials", "agri", "biomed", "general"],
+                       help="学科判定：默认自动，可强制指定")
     p_run.set_defaults(func=cmd_run)
     _add_db(p_run)
 

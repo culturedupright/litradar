@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+from .domain import GENERAL, Domain
 from .llm import Usage, chat, extract_json
 
-SYSTEM = """你是植物-微生物互作、根际微生物组与代谢组方向的课题分析师。
+
+def system_prompt(domain: Domain | None = None) -> str:
+    domain = domain or GENERAL
+    return f"""{domain.analyst_role}
 只依据给出的卡片做归纳，不引入卡片之外的事实，不编造文献。
 指出共识、争议、空白时，尽量标注来自哪些 PMCID；证据不足就写“证据不足”。
+按 {domain.framework} 的口径组织结论：卡片缺哪一格，就说明哪一格是空白，不要替作者补。
 输出严格 JSON。"""
 
 SCHEMA = """{
@@ -30,9 +35,11 @@ def _compact(card: dict) -> str:
 
 
 def summarize(direction: str, cards: list[dict], model_name: str = "deepseek",
-              max_cards: int = 12) -> tuple[dict, Usage]:
+              max_cards: int = 12, domain: Domain | None = None) -> tuple[dict, Usage]:
+    domain = domain or GENERAL
     blocks = "\n\n".join(_compact(c) for c in cards[:max_cards])
     prompt = f"""研究方向：{direction}
+学科：{domain.label}；归纳口径：{domain.framework}
 
 已抽取的文献卡片：
 {blocks}
@@ -48,7 +55,7 @@ def summarize(direction: str, cards: list[dict], model_name: str = "deepseek",
 按此 JSON 输出：
 {SCHEMA}"""
     reply, usage = chat(
-        [{"role": "system", "content": SYSTEM},
+        [{"role": "system", "content": system_prompt(domain)},
          {"role": "user", "content": prompt}],
         model_name=model_name,
         temperature=0.3,

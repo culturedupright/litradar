@@ -23,6 +23,9 @@ CREATE TABLE IF NOT EXISTS papers (
   authors TEXT,
   is_oa INTEGER,
   cited_by INTEGER,
+  relevance REAL DEFAULT 0,
+  gate TEXT DEFAULT 'pass',
+  gate_reason TEXT,
   payload TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_papers_year ON papers(year);
@@ -76,7 +79,27 @@ def connect(path: Path | str = DB_PATH) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path)
     conn.executescript(SCHEMA)
+    _migrate(conn)
     return conn
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """老库补列：相关性闸门是后加的，旧数据默认放行。"""
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(papers)").fetchall()}
+    for name, ddl in (("relevance", "REAL DEFAULT 0"),
+                      ("gate", "TEXT DEFAULT 'pass'"),
+                      ("gate_reason", "TEXT")):
+        if name not in columns:
+            conn.execute(f"ALTER TABLE papers ADD COLUMN {name} {ddl}")
+    conn.commit()
+
+
+def set_gate(conn: sqlite3.Connection, paper_id: str, score: float,
+             keep: bool, reason: str = "") -> None:
+    conn.execute(
+        "UPDATE papers SET relevance=?, gate=?, gate_reason=? WHERE id=?",
+        (float(score), "pass" if keep else "drop", reason or "", paper_id),
+    )
 
 
 def upsert(conn: sqlite3.Connection, paper: Paper) -> None:
@@ -106,10 +129,16 @@ def all_papers(conn: sqlite3.Connection, limit: int | None = None) -> list[Paper
     return [Paper.from_dict(json.loads(r[0])) for r in rows]
 
 
-def to_csv(conn: sqlite3.Connection, out: Path) -> int:
-    rows = conn.execute(
-        "SELECT doi, pmid, pmcid, year, journal, title, is_oa FROM papers"
-    ).fetchall()
+def to_csv(conn: sqlite3.Connection, out: Path, ids: set[str] | None = None) -> int:
+    sql = "SELECT doi, pmid, pmcid, year, journal, title, is_oa FROM papers"
+    args: list[str] = []
+    if ids is not None:
+        if not ids:
+            return 0
+        marks = ",".join("?" for _ in ids)
+        sql += f" WHERE id IN ({marks})"
+        args = list(ids)
+    rows = conn.execute(sql, args).fetchall()
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open("w", encoding="utf-8-sig") as fh:
         fh.write("doi,pmid,pmcid,year,journal,title,is_oa\n")
@@ -119,19 +148,38 @@ def to_csv(conn: sqlite3.Connection, out: Path) -> int:
     return len(rows)
 
 
-def pending_fulltexts(conn: sqlite3.Connection, limit: int = 20) -> list[tuple[str, str]]:
-    """挑出还没成功抓过全文的 OA 文献，按引用数降序。"""
+def _in_clause(ids: set[str] | None) -> tuple[str, list[str]]:
+    """把本次运行的 PMCID 收窄成 IN 子句；None 表示不限制（老调用方兼容）。"""
+    if ids is None:
+        return "", []
+    if not ids:
+        return " AND 1=0", []
+    marks = ",".join("?" for _ in ids)
+    return f" AND p.pmcid IN ({marks})", list(ids)
+
+
+def pending_fulltexts(conn: sqlite3.Connection, limit: int = 20,
+                      allowed: set[str] | None = None) -> list[tuple[str, str]]:
+    """挑出还没成功抓过全文的 OA 文献，按引用数降序。
+
+    allowed 给出本次运行通过闸门的 PMCID 时，只在这些文献里挑，
+    避免把历史库里别的方向的文献抓进来。
+    """
+    clause, params = _in_clause(allowed)
     sql = """
         SELECT p.pmcid, p.title
         FROM papers p
         LEFT JOIN fulltext f ON f.pmcid = p.pmcid
         WHERE p.pmcid IS NOT NULL AND p.pmcid <> ''
           AND p.is_oa = 1
+          AND COALESCE(p.gate, 'pass') <> 'drop'
           AND (f.pmcid IS NULL OR f.status <> 'ok')
+    """ + clause + """
         ORDER BY p.cited_by DESC
         LIMIT ?
     """
-    return [(row[0], row[1] or "") for row in conn.execute(sql, (int(limit),)).fetchall()]
+    args = [*params, int(limit)]
+    return [(row[0], row[1] or "") for row in conn.execute(sql, args).fetchall()]
 
 
 def save_fulltext(conn: sqlite3.Connection, ft: FullText,
@@ -210,13 +258,17 @@ def get_cards(conn: sqlite3.Connection, limit: int | None = None) -> list[dict]:
     return result
 
 
-def pending_cards(conn: sqlite3.Connection, limit: int = 20) -> list[str]:
+def pending_cards(conn: sqlite3.Connection, limit: int = 20,
+                  allowed: set[str] | None = None) -> list[str]:
+    clause, params = _in_clause(allowed)
     rows = conn.execute(
         """SELECT f.pmcid FROM fulltext f
            LEFT JOIN cards c ON c.pmcid = f.pmcid
+           LEFT JOIN papers p ON p.pmcid = f.pmcid
            WHERE f.status='ok' AND (c.pmcid IS NULL OR c.status <> 'ok')
+    """ + clause + """
            ORDER BY f.pmcid LIMIT ?""",
-        (int(limit),),
+        [*params, int(limit)],
     ).fetchall()
     return [row[0] for row in rows]
 

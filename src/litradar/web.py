@@ -79,10 +79,14 @@ button:disabled{opacity:.45;cursor:not-allowed}
 <div class="grid">
   <div class="field full">
     <label>研究方向（必填，一句话）</label>
-    <textarea id="direction" placeholder="例：根系分泌物如何塑造根际微生物组的组成与功能"></textarea>
+    <textarea id="direction" placeholder="例：忆阻器类脑神经网络（材料）；根际微生物组与连作障碍（农学）"></textarea>
   </div>
-  <div class="field"><label>实验平台</label><select id="platform">
-    <option>不限</option><option>盆栽</option><option>温室</option><option>田间</option><option>小鼠</option><option>体外</option><option>纯干分析</option></select></div>
+  <div class="field"><label>学科判定</label><select id="domain">
+    <option value="auto">自动判定</option><option value="materials">材料与器件</option>
+    <option value="agri">植物—微生物/农学</option><option value="biomed">生物医学</option>
+    <option value="general">通用</option></select></div>
+  <div class="field"><label>实验类型</label><select id="platform">
+    <option>不限</option><option>湿实验</option><option>干实验</option><option>湿+干</option><option>仿真与理论</option></select></div>
   <div class="field"><label>预算量级</label><select id="budget">
     <option>不限</option><option>1 万以内</option><option>1–5 万</option><option>5–20 万</option></select></div>
   <div class="field"><label>可投入周期</label><select id="period">
@@ -189,7 +193,7 @@ function render(md){
 }
 function showResult(res){
   $("result").style.display="block";
-  $("meta").textContent=`检索 ${res.found} 篇 · 全文 ${res.fetched} 篇 · 卡片 ${res.cards} 张 · tokens ${res.tokens}`;
+  $("meta").textContent=`检索 ${res.found} 篇 · 同域 ${res.kept??res.found} 篇 · 挡掉 ${res.dropped??0} 篇 · 全文 ${res.fetched} 篇 · 卡片 ${res.cards} 张 · tokens ${res.tokens}`;
   $("download").href="/api/download?id="+taskId;
   fetch("/api/report?id="+taskId).then(r=>r.text()).then(md=>{
     const secs=splitSections(md);
@@ -248,7 +252,7 @@ $("run").onclick=()=>{
   $("run").disabled=true;$("result").style.display="none";$("error").textContent="";
   $("progress").style.display="block";$("fill").style.width="0";$("pct").textContent="0%";$("step").textContent="提交中";
   $("log").innerHTML="";$("live").textContent="";liveBase=null;
-  const payload={direction,platform:$("platform").value,budget:$("budget").value,period:$("period").value,
+  const payload={direction,domain_key:$("domain").value,platform:$("platform").value,budget:$("budget").value,period:$("period").value,
     wet_lab:$("wet").value,years:`${fy}-${ty}`,search_limit:+$("search").value,
     fetch_limit:+$("fetch").value,card_limit:+$("cards").value,model_name:$("model").value};
   fetch("/api/run",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)})
@@ -398,6 +402,7 @@ class Handler(BaseHTTPRequestHandler):
                     card_limit=int(payload.get("card_limit", 8)),
                     model_name=payload.get("model_name", "deepseek"),
                     db_path=DB_PATH,
+                    domain_key=payload.get("domain_key", "auto"),
                     progress=progress,
                     note=note,
                 )

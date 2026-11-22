@@ -3,6 +3,27 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.6.0] - 2026-11-22
+
+### Added
+- 学科判定（`domain.py`）：材料与器件 / 植物—微生物 / 生物医学 / 通用四套档案，按词表投票自动判，0 命中或多方平票退回通用
+- 相关性闸门（`relevance.py`）：主题词 + 标题 + 学科词加分，干扰词扣分，低于阈值挡掉并给出理由
+- 检索体检：简报开头新增候选/同域/挡掉/保留率/阈值/期刊分布/年份跨度/被挡样例
+- 检索式自动放宽：0 命中时从尾部逐个去掉 `AND` 组重试，最多 3 次
+- 材料学科使用 PSPP 口径，卡片九字段描述改为“制备—表征—测试”，不再出现“盆栽”
+- 学科下拉框（CLI `--domain`、Web 表单），可强制指定 auto/materials/agri/biomed/general
+
+### Changed
+- 卡片与聚合的提示词按学科参数化，键名不变，旧数据兼容
+- 本轮运行只抓本轮候选的全文、只聚合本轮生成的卡片，不再把历史库里别的方向卡片拉进来
+- `papers` 表新增 `relevance`、`gate`、`gate_reason`，旧库自动补列，默认放行
+- 模型输出字段统一用中文（专有名词可保留英文），引句仍保留英文原文
+- 全文抓取在 Europe PMC 返回 500 时自动退到 NCBI efetch 取同一份 JATS
+
+### Fixed
+- “rat” 误命中 “integrated”、“plant” 误命中 “implant” 之类的整词匹配假阳性
+- 聚合阶段没有卡片仍调用模型、凭空编结论的问题
+
 ## [0.5.0] - 2026-11-20
 
 ### Added

@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from .net import get_bytes
 
 FULLTEXT_URL = "https://www.ebi.ac.uk/europepmc/webservices/rest/{pmcid}/fullTextXML"
+FALLBACK_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pmc&id={pmcid}&retmode=xml"
 IMAGE_BASE = "https://cdn.ncbi.nlm.nih.gov/pmc/"
 
 _TAG_RE = re.compile(r"<[^>]+>")
@@ -150,8 +151,14 @@ def parse_jats(xml: str, pmcid: str) -> FullText:
 
 
 def fetch_fulltext(pmcid: str) -> tuple[FullText, bytes]:
-    """抓一篇 OA 全文，返回解析结果与原始 XML。"""
-    url = FULLTEXT_URL.format(pmcid=pmcid)
-    data = get_bytes(url)
+    """抓一篇 OA 全文，返回解析结果与原始 XML。
+
+    Europe PMC 的 fullTextXML 偶尔整站 500（2026-11 实测），这时退到 NCBI
+    efetch 拿同一份 JATS，保证一次网络故障不至于让整轮运行颗粒无收。
+    """
+    try:
+        data = get_bytes(FULLTEXT_URL.format(pmcid=pmcid), retries=2)
+    except Exception:  # noqa: BLE001 - 主源不可用时走备用源
+        data = get_bytes(FALLBACK_URL.format(pmcid=pmcid), retries=2)
     text = data.decode("utf-8", errors="replace")
     return parse_jats(text, pmcid), data

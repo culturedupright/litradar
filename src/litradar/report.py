@@ -2,6 +2,40 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .domain import GENERAL, Domain
+
+
+def _audit_block(audit: dict | None, domain: Domain | None) -> list[str]:
+    if not audit:
+        return []
+    label = audit.get("domain_label") or (domain.label if domain else "")
+    pct = f"{audit.get('keep_ratio', 0) * 100:.0f}%"
+    lines = ["## 检索体检", ""]
+    lines.append(f"- 学科判定：{label}；归纳口径：{audit.get('framework', '')}")
+    lines.append(f"- 候选 {audit.get('candidates', 0)} 篇，同域保留 {audit.get('kept', 0)} 篇（{pct}），"
+                 f"挡掉 {audit.get('dropped', 0)} 篇（阈值 {audit.get('threshold', 0)}）")
+    if not audit.get("gate_enabled", True):
+        lines.append("- 本次为通用方向，未启用领域闸门")
+    journals = audit.get("top_journals") or []
+    if journals:
+        lines.append("- 期刊分布：" + "；".join(
+            f"{item['journal']}（{item['count']}）" for item in journals))
+    years = audit.get("year_range") or []
+    if years:
+        lines.append(f"- 年份跨度：{years[0]}–{years[1]}")
+    terms = audit.get("topic_terms") or []
+    if terms:
+        lines.append("- 主题词：" + "、".join(terms[:10]))
+    dropped = audit.get("dropped_samples") or []
+    if dropped:
+        lines += ["", "被挡掉的样例（不进全文抓取、不进卡片）："]
+        for item in dropped[:5]:
+            lines.append(f"- {item.get('title', '')} —— {item.get('reason', '')}")
+    if audit.get("kept") == 0:
+        lines += ["", "> 本次没有同域文献。后面的归纳不可用，请改写方向或检索式后重跑。"]
+    lines.append("")
+    return lines
+
 
 def _bullets(items: list[dict], title_key: str, extra_key: str = "") -> list[str]:
     lines = []
@@ -18,8 +52,12 @@ def _bullets(items: list[dict], title_key: str, extra_key: str = "") -> list[str
 
 
 def build_markdown(direction: str, papers: list[dict], cards: list[dict],
-                   summary: dict, figures: dict[str, list[dict]]) -> str:
+                   summary: dict, figures: dict[str, list[dict]],
+                   audit: dict | None = None,
+                   domain: Domain | None = None) -> str:
+    domain = domain or GENERAL
     out: list[str] = [f"# 题眼 LitRadar · 证据简报", "", f"**研究方向**：{direction}", ""]
+    out += _audit_block(audit, domain)
 
     out += ["## 一、领域全景", "", "### 共识"]
     out += _bullets(summary.get("consensus", []), "point")
@@ -29,8 +67,11 @@ def build_markdown(direction: str, papers: list[dict], cards: list[dict],
     out += _bullets(summary.get("gaps", []), "gap", "why")
     out += [""]
 
+    labels = dict(domain.card_labels or {})
     out += ["## 二、证据矩阵", "",
-            "| PMCID | 设计 | 系统 | 处理 | n | 组学/检测 | 核心结论 |",
+            f"| PMCID | {labels.get('design', '设计')} | {labels.get('system', '系统')} | "
+            f"{labels.get('factors', '处理')} | {labels.get('sample_size', 'n')} | "
+            f"{labels.get('omics', '检测')} | {labels.get('conclusion', '结论')} |",
             "| --- | --- | --- | --- | --- | --- | --- |"]
     for card in cards:
         cells = [card.get("pmcid", ""), card.get("design", ""), card.get("system", ""),
@@ -43,13 +84,10 @@ def build_markdown(direction: str, papers: list[dict], cards: list[dict],
     out += ["## 三、单篇卡片", ""]
     for card in cards:
         out += [f"### {card.get('pmcid', '')} · {card.get('title', '')}", ""]
-        labels = {
-            "design": "设计", "system": "系统", "factors": "处理因素",
-            "controls": "对照", "sample_size": "样本量", "omics": "组学/检测",
-            "outcomes": "结局", "conclusion": "结论", "limitations": "局限",
-        }
-        for key, label in labels.items():
-            out.append(f"- **{label}**：{card.get(key, '')}")
+        labels = domain.card_labels or {}
+        for key in ("design", "system", "factors", "controls", "sample_size",
+                    "omics", "outcomes", "conclusion", "limitations"):
+            out.append(f"- **{labels.get(key, key)}**：{card.get(key, '')}")
         evidence = card.get("evidence") or []
         if evidence:
             out += ["", "证据定位："]
@@ -106,7 +144,10 @@ def build_markdown(direction: str, papers: list[dict], cards: list[dict],
 
 
 def write_markdown(path: Path, direction: str, papers: list[dict], cards: list[dict],
-                   summary: dict, figures: dict[str, list[dict]]) -> Path:
+                   summary: dict, figures: dict[str, list[dict]],
+                   audit: dict | None = None,
+                   domain: Domain | None = None) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(build_markdown(direction, papers, cards, summary, figures), encoding="utf-8")
+    path.write_text(build_markdown(direction, papers, cards, summary, figures,
+                                   audit=audit, domain=domain), encoding="utf-8")
     return path
