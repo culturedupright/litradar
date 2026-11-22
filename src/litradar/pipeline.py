@@ -34,12 +34,19 @@ def _n(note: Note | None, text: str) -> None:
             pass
 
 
-def plan_prompt(domain: Domain) -> str:
+def plan_prompt(domain: Domain, field_code: str = "") -> str:
+    field = oecd.get(field_code)
+    scope = ""
+    if field:
+        terms = "、".join(field.keywords[:12])
+        scope = (f"\n学科口径：OECD/Frascati {oecd.label(field_code)}（{field.label_en}）。"
+                 f"该子类的英文主题词包括：{terms}。检索式要落在这一口径的专业义上，"
+                 f"至少覆盖其中 2 个词，不要扩展到其他学科的同形义。\n")
     return f"""把下面的中文研究方向翻成 Europe PMC 能用的英文布尔检索式。
 要求：只用英文关键词与同义词，用 OR 连接同义词、用 AND 连接不同概念；不要加年份。
 同义词扩展必须留在本学科内：不要把本领域词扩展到别的学科的常用义（例如材料学方向里的
 "neural network" 不要扩展成神经科学词汇，也不要引入 plant、mouse、patient 这类实验词）。
-同时按 {domain.framework} 把方向拆成四格，键名固定为 population / intervention /
+{scope}同时按 {domain.framework} 把方向拆成四格，键名固定为 population / intervention /
 comparison / outcome，中文含义按该范式解释：{domain.framework_hint}没有的留空。
 另外给一个 keywords 数组：6–12 个英文核心词（含同义词），供 PubMed / Web of Science /
 Scopus / OpenAlex 这些不支持同一套布尔语法的库使用。
@@ -53,11 +60,11 @@ def _step(cb: Progress, name: str, detail: str, percent: int) -> None:
 
 
 def plan_query(direction: str, model_name: str,
-               domain: Domain | None = None) -> tuple[str, dict, int, str, list[str]]:
+               domain: Domain | None = None, field_code: str = "") -> tuple[str, dict, int, str, list[str]]:
     domain = domain or classify(direction)
     reply, usage = chat(
         [{"role": "system", "content": "你是文献检索专家，只输出 JSON。"},
-         {"role": "user", "content": f"{plan_prompt(domain)}\n\n研究方向：{direction}"}],
+         {"role": "user", "content": f"{plan_prompt(domain, field_code)}\n\n研究方向：{direction}"}],
         model_name=model_name,
         temperature=0.1,
     )
@@ -84,6 +91,13 @@ def run_pipeline(direction: str, *, platform: str = "不限", budget: str = "不
                  progress: Progress | None = None,
                  note: Note | None = None) -> dict:
     ensure_dirs()
+    field_code = oecd.validate(oecd_code)
+    if team_profile:
+        cond = team.conditions(team_profile)
+        platform = platform if platform and platform != "不限" else cond.get("experiment", platform)
+        budget = budget if budget and budget != "不限" else cond.get("budget", budget)
+        period = period if period and period != "不限" else cond.get("period", period)
+        wet_lab = wet_lab if wet_lab and wet_lab != "接受" else cond.get("wet", wet_lab)
     conn = connect(db_path)
     started = datetime.now().strftime("%Y%m%d-%H%M%S")
     run_dir = Path(RUNS_DIR) / started
@@ -95,16 +109,16 @@ def run_pipeline(direction: str, *, platform: str = "不限", budget: str = "不
         domain = by_key(domain_key)
     else:
         domain = classify(direction)
-        hint = oecd.domain_hint(oecd_code) if oecd_code else "general"
+        hint = oecd.domain_hint(field_code) if field_code else "general"
         if domain.key == "general" and hint != "general":
             domain = by_key(hint)
     _step(progress, "判定学科", f"{domain.label}；归纳口径 {domain.framework}", 2)
     _n(note, f"学科判定：{domain.label}（闸门 {'开' if domain.gate else '关'}）"
-             + (f"；OECD 分类：{oecd.label(oecd_code)}" if oecd_code else ""))
+             + (f"；OECD 分类：{oecd.label(field_code)}" if field_code else ""))
 
     _step(progress, "规划检索式", "正在把研究方向翻成英文检索式", 4)
     _n(note, f"方向：{direction[:60]}；模型：{model_name}")
-    query, pico, used, framework, keywords = plan_query(direction, model_name, domain)
+    query, pico, used, framework, keywords = plan_query(direction, model_name, domain, field_code)
     tokens += used
     _step(progress, "规划检索式", f"检索式：{query[:120]}", 8)
     _n(note, f"检索式定稿：{query[:160]}")
@@ -153,7 +167,10 @@ def run_pipeline(direction: str, *, platform: str = "不限", budget: str = "不
 
     audit = audit_retrieval(domain, terms, decisions)
     audit["sources"] = source_stats
-    audit["oecd"] = oecd.label(oecd_code) if oecd_code else ""
+    audit["oecd"] = oecd.label(field_code) if field_code else ""
+    audit["oecd_distribution"] = oecd.distribution(
+        [f"{d.get('title', '')} {d.get('journal', '')}" for d in decisions if d.get("keep")],
+        field_code)
     kept = audit["kept"]
     _step(progress, "相关性闸门",
           f"候选 {added} 篇，同域 {kept} 篇，挡掉 {dropped} 篇", 20)
@@ -167,7 +184,7 @@ def run_pipeline(direction: str, *, platform: str = "不限", budget: str = "不
                                      empty, {}, audit=audit, domain=domain)
         proposal_path = proposal.write_markdown(
             run_dir / "开题报告.md", direction, empty, [], audit,
-            field_code=oecd_code, platform=platform, budget=budget, period=period,
+            field_code=field_code, platform=platform, budget=budget, period=period,
             wet_lab=wet_lab, team_profile=team_profile, owner=owner, stats=source_stats)
         docx_path = proposal.write_docx(proposal_path, run_dir / "开题报告.docx", direction)
         to_csv(conn, run_dir / "papers.csv", {d["id"] for d in decisions})
@@ -175,7 +192,7 @@ def run_pipeline(direction: str, *, platform: str = "不限", budget: str = "不
             json.dumps({"direction": direction, "query": query, "pico": pico,
                         "framework": framework, "domain": domain.key,
                         "audit": audit, "tokens": tokens, "summary": empty,
-                        "sources": source_stats, "oecd": oecd.label(oecd_code)},
+                        "sources": source_stats, "oecd": oecd.label(field_code)},
                        ensure_ascii=False, indent=2), encoding="utf-8")
         save_report(conn, direction, empty, model_name, tokens)
         conn.commit()
@@ -264,7 +281,7 @@ def run_pipeline(direction: str, *, platform: str = "不限", budget: str = "不
     _step(progress, "生成开题报告", "按通行九节骨架排版，附表进附录", 96)
     proposal_path = proposal.write_markdown(
         run_dir / "开题报告.md", direction, summary, all_cards, audit,
-        field_code=oecd_code, platform=platform, budget=budget, period=period,
+        field_code=field_code, platform=platform, budget=budget, period=period,
         wet_lab=wet_lab, team_profile=team_profile, owner=owner, stats=source_stats)
     docx_path = proposal.write_docx(proposal_path, run_dir / "开题报告.docx", direction)
     to_csv(conn, run_dir / "papers.csv", {d["id"] for d in decisions})
@@ -275,7 +292,7 @@ def run_pipeline(direction: str, *, platform: str = "不限", budget: str = "不
                     "audit": audit, "search_limit": search_limit,
                     "fetch_limit": fetch_limit, "card_limit": card_limit,
                     "tokens": tokens, "summary": summary,
-                    "sources": source_stats, "oecd": oecd.label(oecd_code)},
+                    "sources": source_stats, "oecd": oecd.label(field_code)},
                    ensure_ascii=False, indent=2),
         encoding="utf-8")
     save_report(conn, direction, summary, model_name, tokens)

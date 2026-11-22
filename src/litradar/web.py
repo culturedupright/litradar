@@ -85,8 +85,8 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .dim .top{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
 .dim .top b{font-size:13px}
 .dim .top span{font-size:12px;color:var(--sub)}
-.dim input[type=range]{width:100%}
-.dim textarea{min-height:36px;margin-top:4px}
+.dim select{width:100%;margin-top:6px}
+.dim .crit{margin-top:5px;font-size:12px;color:var(--sub)}
 .foot{margin-top:34px;color:var(--sub);font-size:12px}
 </style>
 </head>
@@ -105,15 +105,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
     <option value="agri">植物—微生物/农学</option><option value="biomed">生物医学</option>
     <option value="general">通用</option></select></div>
   <div class="field"><label>OECD 大类</label><select id="oecd_major"><option value="">不指定</option></select></div>
-  <div class="field"><label>OECD 子类</label><select id="oecd_sub"><option value="">不指定</option></select></div>
-  <div class="field"><label>实验类型</label><select id="platform">
-    <option>不限</option><option>湿实验</option><option>干实验</option><option>湿+干</option><option>仿真与理论</option></select></div>
-  <div class="field"><label>预算量级</label><select id="budget">
-    <option>不限</option><option>1 万以内</option><option>1–5 万</option><option>5–20 万</option></select></div>
-  <div class="field"><label>可投入周期</label><select id="period">
-    <option>不限</option><option>3 个月</option><option>6 个月</option><option>1 年</option></select></div>
-  <div class="field"><label>湿实验</label><select id="wet">
-    <option>接受</option><option>只做干实验</option></select></div>
+  <div class="field"><label>OECD 子类（Frascati 2007）</label><select id="oecd_sub"><option value="">不指定</option></select></div>
   <div class="field span2"><label>年份范围（起 — 止）</label>
     <div class="range">
       <input id="year_from" type="date" value="2015-01-01" min="1900-01-01" max="2100-12-31">
@@ -141,10 +133,19 @@ button:disabled{opacity:.45;cursor:not-allowed}
 </div>
 
 <div class="panel">
-<h2 class="sect">课题组条件（按基金评审常用五维自评）</h2>
-<p class="hint">1–5 级，插件只用它判断“这个选题接不接得住”，写进开题报告第六节；不编单位数据。</p>
-<div id="teamdims"></div>
-<div class="actions"><span class="hint" id="teamscore"></span><button class="mini" id="teamsave">保存并用于本次</button></div>
+<h2 class="sect">课题组条件（基金评审五维 + 研究条件）</h2>
+<p class="hint">先填单位、通讯作者、人数、在研项目这些能核对的事实，插件按规则推算五维等级；要精确可逐项改下拉。不再用滑杆自评。</p>
+<div class="grid" id="teamquick"></div>
+<div class="actions">
+  <button class="mini" id="teamderive">按填写重新推算</button>
+  <button class="mini" id="teamsave">保存</button>
+  <span class="hint" id="teamhint">五维默认随填写自动更新</span>
+</div>
+<div id="teamdims" style="margin-top:14px"></div>
+<h3 class="sect" style="margin-top:16px">研究条件</h3>
+<p class="hint">原来单独放在首页的实验类型、经费、周期、湿实验，并到这里——它们本来就属于“接不接得住”，不属于方向本身。</p>
+<div class="grid" id="teamcond"></div>
+<div class="actions"><span class="hint" id="teamscore"></span></div>
 </div>
 
 <div class="panel" id="progress" style="display:none">
@@ -171,19 +172,22 @@ button:disabled{opacity:.45;cursor:not-allowed}
 <script>
 let taskId=null,timer=null;
 const $=id=>document.getElementById(id);
-let CRED=null, DIMS=[];
+let CRED=null, DIMS=[], SCHEMA=null, TEAM=null;
 function loadSettings(){
   fetch("/api/settings").then(r=>r.json()).then(d=>{
     buildOecd(d.oecd||[]);
     renderSources(d.sources||[]);
-    DIMS=d.team.dimensions||[];renderTeam(d.team.profile||{});
+    SCHEMA=d.team.schema||{identity:[],dimensions:[],conditions:[]};
+    DIMS=SCHEMA.dimensions||[];
+    TEAM=d.team.profile||{identity:{},dims:{},conditions:{}};
+    renderTeam();
   }).catch(e=>{$("sources").textContent="读取配置失败："+e;});
 }
 function buildOecd(rows){
   const major=$("oecd_major");major.innerHTML='<option value="">不指定</option>';
   rows.forEach(m=>{const o=document.createElement("option");o.value=m.code;o.textContent=m.label;major.appendChild(o);});
   major.onchange=()=>{
-    const sub=$("oecd_sub");sub.innerHTML='<option value="">不指定</option>';
+    const sub=$("oecd_sub");sub.innerHTML='<option value="">不指定（按方向自动判定）</option>';
     const row=rows.find(m=>m.code===major.value);
     (row?row.children:[]).forEach(c=>{const o=document.createElement("option");o.value=c.code;o.textContent=c.label;sub.appendChild(o);});
   };
@@ -245,35 +249,97 @@ $("credtest").onclick=()=>{
       $("credmsg").textContent=d.ok?("连接正常，返回 "+d.count+" 条"):("连接失败："+(d.error||"未知原因"));
     }).catch(e=>{$("credmsg").textContent=String(e);});
 };
-function renderTeam(profile){
-  const box=$("teamdims");box.innerHTML="";
+function renderTeam(){
+  const quick=$("teamquick");quick.innerHTML="";
+  (SCHEMA.identity||[]).forEach(f=>{
+    const wrap=document.createElement("div");wrap.className="field";
+    const lab=document.createElement("label");lab.textContent=f.label;
+    let input;
+    if(f.type==="select"){
+      input=document.createElement("select");
+      (f.options||[]).forEach(v=>{const o=document.createElement("option");o.value=v;o.textContent=v;input.appendChild(o);});
+      input.value=(TEAM.identity||{})[f.key]||f.options[0];
+    }else{
+      input=document.createElement("input");input.type="text";input.placeholder=f.placeholder||"";
+      input.value=(TEAM.identity||{})[f.key]||"";
+    }
+    input.id="id_"+f.key;
+    wrap.append(lab,input);quick.appendChild(wrap);
+  });
+  const dims=$("teamdims");dims.innerHTML="";
   DIMS.forEach(d=>{
-    const p=profile[d.key]||{level:3,note:""};
+    const item=(TEAM.dims||{})[d.key]||{level:3,source:"auto",note:""};
     const div=document.createElement("div");div.className="dim";
     const top=document.createElement("div");top.className="top";
     const name=document.createElement("b");name.textContent=d.label+"（权重 "+d.weight.toFixed(2)+"）";
-    const val=document.createElement("span");val.id="lv_"+d.key;val.textContent=p.level+" 级 · "+d.hint;
-    top.append(name,val);
-    const range=document.createElement("input");range.type="range";range.min="1";range.max="5";range.step="1";
-    range.value=p.level;range.id="rg_"+d.key;
-    range.oninput=()=>{val.textContent=range.value+" 级 · "+d.hint;scoreTeam();};
-    const note=document.createElement("textarea");note.id="note_"+d.key;note.placeholder="补充说明（可空，例如：有重点实验室 / 3 名博士生）";note.value=p.note||"";
-    div.append(top,range,note);box.appendChild(div);
+    const src=document.createElement("span");src.id="src_"+d.key;
+    src.textContent=(item.source==="auto"?"自动推算":"手工填写")+" · "+d.hint;
+    top.append(name,src);
+    const sel=document.createElement("select");sel.id="dim_"+d.key;
+    d.options.forEach(o=>{
+      const opt=document.createElement("option");opt.value=o.level;
+      opt.textContent=o.level+" 级 · "+o.label;sel.appendChild(opt);
+    });
+    sel.value=item.level;
+    sel.dataset.source=item.source||"auto";
+    const crit=document.createElement("div");crit.className="crit";crit.id="crit_"+d.key;
+    const show=()=>{
+      const o=d.options.find(x=>+x.level===+sel.value)||d.options[2];
+      crit.textContent="判据："+o.criteria;
+      src.textContent=(sel.dataset.source==="auto"?"自动推算":"手工填写")+" · "+d.hint;
+      scoreTeam();
+    };
+    sel.onchange=()=>{sel.dataset.source="manual";show();};
+    show();
+    const note=document.createElement("input");note.type="text";note.id="note_"+d.key;
+    note.placeholder="补充说明（可空）";note.value=item.note||"";
+    div.append(top,sel,crit,note);dims.appendChild(div);
+  });
+  const cond=$("teamcond");cond.innerHTML="";
+  (SCHEMA.conditions||[]).forEach(c=>{
+    const wrap=document.createElement("div");wrap.className="field";
+    const lab=document.createElement("label");lab.textContent=c.label;
+    const sel=document.createElement("select");sel.id="cond_"+c.key;
+    c.options.forEach(v=>{const o=document.createElement("option");o.value=v;o.textContent=v;sel.appendChild(o);});
+    sel.value=(TEAM.conditions||{})[c.key]||c.options[0];
+    sel.onchange=scoreTeam;
+    wrap.append(lab,sel);cond.appendChild(wrap);
   });
   scoreTeam();
 }
+function teamIdentity(){
+  const out={};(SCHEMA.identity||[]).forEach(f=>{out[f.key]=($("id_"+f.key)||{}).value||"";});return out;
+}
+function teamConditions(){
+  const out={};(SCHEMA.conditions||[]).forEach(c=>{out[c.key]=($("cond_"+c.key)||{}).value||c.options[0];});return out;
+}
 function teamProfile(){
-  const out={};DIMS.forEach(d=>{out[d.key]={level:+($("rg_"+d.key)||{}).value||3,note:($("note_"+d.key)||{}).value||""};});return out;
+  const dims={};DIMS.forEach(d=>{
+    const sel=$("dim_"+d.key);
+    dims[d.key]={level:+sel.value,source:sel.dataset.source||"manual",
+      note:($("note_"+d.key)||{}).value||""};
+  });
+  return {mode:"quick",identity:teamIdentity(),dims,conditions:teamConditions()};
 }
 function scoreTeam(){
-  let s=0;DIMS.forEach(d=>{s+=((+($("rg_"+d.key)||{}).value||3)*d.weight);});
+  let s=0;DIMS.forEach(d=>{const sel=$("dim_"+d.key);if(sel)s+=(+sel.value||3)*d.weight;});
   const band=s>=4.2?"强":(s>=3.0?"中":"弱");
-  $("teamscore").textContent="当前综合 "+s.toFixed(2)+" / 5（"+band+"）";
+  $("teamscore").textContent="当前五维综合 "+s.toFixed(2)+" / 5（"+band+"）";
 }
+$("teamderive").onclick=()=>{
+  fetch("/api/team/derive",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({profile:teamProfile()})}).then(r=>r.json()).then(d=>{
+      if(d.error){$("teamhint").textContent=d.error;return;}
+      TEAM=d.profile;renderTeam();
+      $("teamhint").textContent="已按填写推算（手动改过的档位保留）";
+    }).catch(e=>{$("teamhint").textContent=String(e);});
+};
 $("teamsave").onclick=()=>{
   fetch("/api/team",{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({profile:teamProfile()})}).then(r=>r.json()).then(d=>{
-      if(d.evaluation)$("teamscore").textContent=`已保存 · 综合 ${d.evaluation.score} / 5（${d.evaluation.band}）`;
+      if(d.error){$("teamhint").textContent=d.error;return;}
+      TEAM=d.profile;renderTeam();
+      $("teamhint").textContent=`已保存 · 综合 ${d.evaluation.score} / 5（${d.evaluation.band}）`;
     });
 };
 loadSettings();
@@ -412,8 +478,9 @@ $("run").onclick=()=>{
   const sources=[].slice.call($("sources").querySelectorAll("input[type=checkbox]"))
     .filter(c=>c.checked).map(c=>c.id.replace("src_",""));
   if(!sources.length){alert("至少勾一个检索源");return;}
-  const payload={direction,domain_key:$("domain").value,platform:$("platform").value,budget:$("budget").value,period:$("period").value,
-    wet_lab:$("wet").value,years:`${fy}-${ty}`,search_limit:+$("search").value,
+  const cond=teamConditions();
+  const payload={direction,domain_key:$("domain").value,platform:cond.experiment,budget:cond.budget,period:cond.period,
+    wet_lab:cond.wet,years:`${fy}-${ty}`,search_limit:+$("search").value,
     fetch_limit:+$("fetch").value,card_limit:+$("cards").value,model_name:$("model").value,
     sources,oecd:$("oecd_sub").value,team_profile:teamProfile(),owner:$("owner").value};
   fetch("/api/run",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)})
@@ -511,7 +578,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if route.path == "/api/settings":
             self._json({"sources": credentials.all_status(),
-                        "team": {"profile": team.load(), "dimensions": list(team.DIMENSIONS),
+                        "team": {"profile": team.load(), "schema": team.schema(),
                                  "evaluation": team.evaluate()},
                         "oecd": oecd.as_json()})
             return
@@ -579,6 +646,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/team":
             profile = team.save(payload.get("profile") or {})
+            self._json({"profile": profile, "evaluation": team.evaluate(profile)})
+            return
+        if path == "/api/team/derive":
+            profile = team.save(team.quick_derive(payload.get("profile") or {}))
             self._json({"profile": profile, "evaluation": team.evaluate(profile)})
             return
         if path != "/api/run":

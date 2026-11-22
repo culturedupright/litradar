@@ -12,6 +12,18 @@ def _audit_block(audit: dict | None, domain: Domain | None) -> list[str]:
     pct = f"{audit.get('keep_ratio', 0) * 100:.0f}%"
     lines = ["## 检索体检", ""]
     lines.append(f"- 学科判定：{label}；归纳口径：{audit.get('framework', '')}")
+    if audit.get("oecd"):
+        lines.append(f"- OECD 学科口径：{audit['oecd']}")
+    dist = audit.get("oecd_distribution") or {}
+    if dist.get("total"):
+        tags = "；".join(f"{r['label']}（{r['count']}）" for r in (dist.get("counts") or [])[:5])
+        line = f"- 同域文献的学科分布（按标题词表打标）：{tags or '无'}"
+        if dist.get("untagged"):
+            line += f"；未打标 {dist['untagged']} 篇"
+        lines.append(line)
+        if dist.get("selected") and dist.get("fit") is not None and dist["fit"] < 0.5:
+            lines.append(f"- 提示：仅 {dist['fit'] * 100:.0f}% 的文献落在所选 OECD 子类，"
+                         "口径可能选窄了，或方向本身跨子类。")
     lines.append(f"- 候选 {audit.get('candidates', 0)} 篇，同域保留 {audit.get('kept', 0)} 篇（{pct}），"
                  f"挡掉 {audit.get('dropped', 0)} 篇（阈值 {audit.get('threshold', 0)}）")
     if not audit.get("gate_enabled", True):

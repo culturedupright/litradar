@@ -50,6 +50,11 @@ def _timeline(period: str) -> list[str]:
                   ("第 3–4 月", "主体实验/计算"),
                   ("第 5 月", "补充验证与复现"),
                   ("第 6 月", "成文与答辩材料")]
+    elif period in ("2 年以上",):
+        stages = [("第 1–3 月", "文献综述、方案与预实验"),
+                  ("第 4–9 月", "主体实验/计算与阶段核对"),
+                  ("第 10–15 月", "补充验证、复现与扩展场景"),
+                  ("第 16–24 月", "成文、投稿与结题材料")]
     else:
         stages = [("第 1–3 月", "文献综述、方案与预实验"),
                   ("第 4–7 月", "主体实验/计算与阶段核对"),
@@ -65,7 +70,7 @@ def build(direction: str, summary: dict, cards: list[dict], audit: dict | None,
           stats: list[dict] | None = None) -> str:
     audit = audit or {}
     summary = summary or {}
-    field = oecd.label(field_code)
+    field = oecd.label_full(field_code) or oecd.label(field_code)
     first = (summary.get("directions") or [{}])[0]
     gaps = summary.get("gaps") or []
     consensus = summary.get("consensus") or []

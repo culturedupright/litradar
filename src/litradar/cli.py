@@ -5,6 +5,7 @@ import sys
 import time
 from pathlib import Path
 
+from . import team
 from .config import DB_PATH, FULLTEXT_DIR, REQUEST_INTERVAL, ensure_dirs
 from .europepmc import build_query, iter_papers
 from .fulltext import FullText, fetch_fulltext
@@ -131,6 +132,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         domain_key=args.domain,
         sources_list=args.sources.split(",") if args.sources else ["europepmc"],
         oecd_code=args.oecd,
+        team_profile=team.load(),
         progress=progress,
     )
     print(f"\n简报：{result['report']}")

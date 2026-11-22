@@ -49,7 +49,33 @@ def test_team_scores_and_gaps() -> None:
                             ("pi", "platform", "foundation", "team", "funding")})
     assert strong["score"] == 5.0 and strong["band"] == "强"
     weak = team.evaluate({"pi": {"level": 1, "note": ""}})
-    assert "PI 学术资本" in weak["gaps"]
+    assert "负责人学术水平" in weak["gaps"]
+
+
+def test_oecd_full_taxonomy_and_classify() -> None:
+    assert len(oecd.FIELDS) == 42
+    assert oecd.get("2.5").label_en == "Materials engineering"
+    assert oecd.label_full("2.5").startswith("2 工程与技术")
+    assert oecd.validate("9.9") == "" and oecd.validate("2") == "2"
+    tags = oecd.classify("HfO2 memristor thin film device")
+    assert tags and tags[0]["code"] in ("2.5", "2.2")
+    dist = oecd.distribution(["memristor thin film", "memristor device", "rice yield"],
+                             "2.5")
+    assert dist["total"] == 3 and dist["fit"] >= 0.5
+
+
+def test_team_quick_derive_conditions_and_schema() -> None:
+    profile = team.defaults()
+    profile["identity"].update({"author_title": "教授/正高", "org": "全国重点实验室",
+                                "group_size": "9 人以上", "project": "国家级项目"})
+    profile = team.quick_derive(profile)
+    assert profile["dims"]["pi"]["level"] == 4
+    assert profile["dims"]["platform"]["level"] == 5
+    assert profile["conditions"]["period"] == "1 年"
+    assert team.evaluate(profile)["score"] >= 4.0
+    schema = team.schema()
+    assert schema["identity"] and schema["conditions"]
+    assert schema["dimensions"][0]["options"][0]["criteria"]
 
 
 def test_proposal_has_nine_sections_and_appendix() -> None:
