@@ -274,7 +274,8 @@ def _author_score(name: str, item: dict, institutions: list[dict], ror: str, orc
     return score
 
 
-def author_search(name: str, ror: str = "", orcid: str = "", limit: int = 8) -> list[dict]:
+def author_search(name: str, ror: str = "", orcid: str = "", limit: int = 8,
+                  include_mismatch: bool = False) -> list[dict]:
     """按姓名（可加 ROR/ORCID）查 OpenAlex 作者候选。"""
     name = str(name or "").strip()
     if not name and not orcid:
@@ -305,9 +306,12 @@ def author_search(name: str, ror: str = "", orcid: str = "", limit: int = 8) -> 
         if not display:
             continue
         insts = _institutions(item, prefer_ror=ror)
-        if ror and not _ror_match(insts, ror):
+        matched = _ror_match(insts, ror) if ror else True
+        if ror and not matched and not include_mismatch:
             continue
         score = _author_score(name or orcid, item, insts, ror, orcid)
+        if ror and not matched:
+            score -= 18
         if score < 25:
             continue
         rows.append({
@@ -317,6 +321,7 @@ def author_search(name: str, ror: str = "", orcid: str = "", limit: int = 8) -> 
             "orcid": str(item.get("orcid") or "").rsplit("/", 1)[-1],
             "works_count": int(item.get("works_count") or 0),
             "institutions": insts,
+            "institution_match": bool(matched),
             "score": min(100, score),
             "confidence": "高" if score >= 88 else ("中" if score >= 60 else "低"),
         })
@@ -505,6 +510,20 @@ def doi_check(doi: str, name: str = "", unit: str = "", ror: str = "") -> dict:
     }
 
 
+def _merge_authors(*groups: list[dict], limit: int = 8) -> list[dict]:
+    """合并多次作者检索结果；按 OpenAlex ID 去重，保留匹配度最高的一条。"""
+    by_id: dict[str, dict] = {}
+    for group in groups:
+        for row in group or []:
+            key = str(row.get("id") or row.get("openalex") or row.get("name") or "")
+            old = by_id.get(key)
+            if old is None or int(row.get("score") or 0) > int(old.get("score") or 0):
+                by_id[key] = row
+    rows = list(by_id.values())
+    rows.sort(key=lambda x: (-int(x.get("score") or 0), -int(x.get("works_count") or 0)))
+    return rows[:limit]
+
+
 def lookup(action: str, payload: dict) -> dict:
     """统一入口：search 返回单位/作者候选，works 返回近作，doi 做 DOI 回查。"""
     action = str(action or "search")
@@ -522,18 +541,31 @@ def lookup(action: str, payload: dict) -> dict:
     if not name and not unit and not orcid:
         return {"error": "至少填姓名、单位或 ORCID 之一"}
     institutions = ror_search(unit) if unit else []
-    authors = author_search(name, ror, orcid) if (name or orcid) else []
+    authors = author_search(name, ror, orcid, include_mismatch=True) if (name or orcid) else []
     if not ror and institutions and institutions[0]["score"] >= 90:
         ror = institutions[0]["id"]
-        authors = author_search(name, ror, orcid) if (name or orcid) else []
+        authors = author_search(name, ror, orcid, include_mismatch=True) if (name or orcid) else []
     name_note = ""
-    if (name or orcid) and not authors:
-        for variant in _name_variants(name):
-            rows = author_search(variant, ror, orcid)
-            if rows:
-                authors = rows
-                name_note = f"中文姓名按英文署名“{variant}”补搜到候选"
+    if name or orcid:
+        variants = _name_variants(name)
+        for variant in variants:
+            if len(authors) >= 4:
                 break
+            extra = author_search(variant, ror, orcid, include_mismatch=True)
+            if not extra:
+                continue
+            merged = _merge_authors(authors, extra)
+            if len(merged) > len(authors):
+                authors = merged
+                name_note = f"中文姓名按英文署名“{variant}”补搜到候选"
+        # 机构筛选过窄时，再给同名候选一次不带机构的机会；单位不匹配会标注出来。
+        if ror and len(authors) < 3:
+            extra = author_search(name, "", orcid, include_mismatch=True) if name else []
+            merged = _merge_authors(authors, extra)
+            if len(merged) > len(authors):
+                authors = merged
+                if not name_note:
+                    name_note = "同时列出机构不完全匹配的同名候选，需人工确认"
     note = "先选单位，再选作者；候选人按姓名、ROR、ORCID 匹配排序，不按影响因子、h-index 或论文数量评价质量。"
     if name_note:
         note = name_note + "；仍需确认作者身份。" + note

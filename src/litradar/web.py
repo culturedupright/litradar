@@ -249,7 +249,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
 <script>
 let taskId=null,timer=null;
 const $=id=>document.getElementById(id);
-let CRED=null, DIMS=[], SCHEMA=null, TEAM=null, VERIFIED={}, STALE=[];
+let CRED=null, DIMS=[], SCHEMA=null, TEAM=null, VERIFIED={}, STALE=[], TITLE_MANUAL=false, DEPT_MANUAL=false;
 let teamTimer=null, teamSeq=0, suggestTimer=null, suggestSeq=0;
 function loadSettings(){
   fetch("/api/settings").then(r=>r.json()).then(d=>{
@@ -409,10 +409,11 @@ function loadSuggestions(key){
       }));
       if(!rows.length)box.innerHTML='<div class="meta">ROR 没匹配到单位，补官方英文名或直接手填。</div>';
     }else{
-      rows=(d.authors||[]).slice(0,5).map(a=>({
+      rows=(d.authors||[]).slice(0,8).map(a=>({
         html:'<b>'+esc(a.name)+'</b><span class="pick">'+esc(a.confidence||"")+'置信度 · 采用</span>'+
           '<div class="meta">'+esc([(a.institutions||[]).map(x=>x.name).slice(0,2).join("；"),
-          a.orcid?("ORCID "+a.orcid):"",a.works_count+" 篇"].filter(Boolean).join(" · "))+'</div>',
+          a.orcid?("ORCID "+a.orcid):"",a.works_count+" 篇",
+          a.institution_match===false?"机构不匹配，需核对":""].filter(Boolean).join(" · "))+'</div>',
         click:()=>selectAuthor(a)
       }));
       if(!rows.length)box.innerHTML='<div class="meta">没有作者候选；补 ORCID，或用论文英文署名再试。</div>';
@@ -421,6 +422,11 @@ function loadSuggestions(key){
       const item=document.createElement("div");item.className="item";item.innerHTML=r.html;
       item.onclick=r.click;box.appendChild(item);
     });
+    if(key==="author"&&(d.authors||[]).length<=1){
+      const tip=document.createElement("div");tip.className="meta";
+      tip.textContent="OpenAlex 只返回这一条；如果不对，换英文署名再搜，或补 ORCID/论文 DOI 核验。";
+      box.appendChild(tip);
+    }
   }).catch(e=>{if(seq===suggestSeq)box.innerHTML='<div class="bad">检索失败：'+esc(e)+'</div>';});
 }
 function selectInstitution(inst){
@@ -450,6 +456,23 @@ function selectInstitution(inst){
     '<div id="workpanel" class="match" style="display:none"></div>';
   if($("id_author")&&$("id_author").value.trim())scheduleTeam();
 }
+function inferredTitle(works,corr){
+  const w=+works||0,c=+corr||0;
+  if(c>=2||w>=25)return "教授/正高";
+  if(c>=1||w>=8)return "副教授/副高";
+  if(w>=2)return "讲师/中级";
+  return "无通讯作者论文";
+}
+function applyAuthorTitle(works,corr,why){
+  if(TITLE_MANUAL||!$("id_author_title"))return "";
+  const next=inferredTitle(works,corr);
+  const old=$("id_author_title").value;
+  if(next!==old){
+    $("id_author_title").value=next;
+    if(why&&$("lookmsg"))$("lookmsg").textContent="职级按"+why+"推断为"+next+"，可手动改。";
+  }
+  return next;
+}
 function setOrg(level){
   const sel=$("id_org");
   if(!sel||!level)return;
@@ -458,6 +481,7 @@ function setOrg(level){
   scheduleTeam();
 }
 function selectAuthor(a){
+  TITLE_MANUAL=false;
   $("id_author").value=a.name||"";
   VERIFIED.author_openalex=a.id||"";
   VERIFIED.author_orcid=a.orcid||"";
@@ -467,6 +491,7 @@ function selectAuthor(a){
   VERIFIED.lookup_confidence=a.confidence||"";
   VERIFIED.lookup_note="OpenAlex "+(a.id||"")+(a.orcid?("；ORCID "+a.orcid):"")+
     "；作品 "+a.works_count+" 篇";
+  applyAuthorTitle(a.works_count,0,"");
   $("lookmsg").textContent="已采用作者："+a.name+"（"+a.confidence+"置信度），正在取近作…";
   hideSuggest("author");
   const box=$("lookbox");
@@ -484,7 +509,8 @@ function renderWorks(d,a){
   const panel=$("workpanel");if(!panel)return;
   if(d.error){panel.innerHTML='<div class="bad">'+esc(d.error)+'</div>';return;}
   let autoDept=false;
-  if(d.departments&&d.departments.length&&$("id_department")&&!$("id_department").value.trim()){
+  if(d.departments&&d.departments.length&&$("id_department")&&!DEPT_MANUAL
+      &&$("id_department").value.trim()!==d.departments[0].value){
     $("id_department").value=d.departments[0].value;autoDept=true;
   }
   let html='<div class="meta"><b>'+esc(a.name)+'</b> 近作 · 通讯标记来自 OpenAlex，仍需按出版社页面核对。</div>';
@@ -519,7 +545,7 @@ function renderWorks(d,a){
   const first=(d.works||[]).find(w=>w.is_corresponding)||(d.works||[])[0]||{};
   panel.innerHTML=html;
   panel.querySelectorAll("[data-dept]").forEach(el=>{
-    el.onclick=()=>{if($("id_department"))$("id_department").value=el.dataset.dept;
+    el.onclick=()=>{if($("id_department"))$("id_department").value=el.dataset.dept;DEPT_MANUAL=true;
       $("lookmsg").textContent="院系已填入："+el.dataset.dept;};
   });
   panel.querySelectorAll("[data-org]").forEach(el=>{
@@ -532,8 +558,12 @@ function renderWorks(d,a){
     VERIFIED.lookup_confidence=(VERIFIED.lookup_confidence||"中")+"；代表作已带入";
     $("lookmsg").textContent="代表作候选已填入，个人贡献请按实际补写。";
   };
+  const corrCount=(d.works||[]).filter(w=>w.is_corresponding).length;
+  applyAuthorTitle(d.total,corrCount,"");
+  const titleNow=($("id_author_title")&&!TITLE_MANUAL)?$("id_author_title").value:"";
   if($("lookmsg"))$("lookmsg").textContent="已采用作者："+(a.name||"")+"；近作已读取"+
-    (autoDept?"；院系按论文高频写法自动填入，可改":"")+"。";
+    (autoDept?"；院系按论文高频写法自动填入":"")+
+    (titleNow?"；职级按公开成果推断为"+titleNow+"，可改":"")+"。";
 }
 function renderTeam(){
   const quick=$("teamquick");quick.innerHTML="";
@@ -558,6 +588,8 @@ function renderTeam(){
       return;
     }
     input.onchange=scheduleTeam;
+    if(f.key==="author_title")input.onchange=()=>{TITLE_MANUAL=true;scheduleTeam();};
+    if(f.key==="department")input.oninput=()=>{DEPT_MANUAL=true;};
     wrap.append(lab,input);quick.appendChild(wrap);
   });
   const dims=$("teamdims");dims.innerHTML="";

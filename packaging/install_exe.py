@@ -13,7 +13,7 @@ import zipfile
 from pathlib import Path
 
 APP_NAME = "LitRadar"
-VERSION = "0.10.2"
+VERSION = "0.10.3"
 PLUGIN_NAME = "litradar-dsh-plugin"
 PROFILE_NAMES = ("desktop", "web")
 
