@@ -136,6 +136,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .localimport.on{display:flex}
 .localimport button{padding:4px 10px;font-size:12px;background:#eef1f4;color:var(--ink);border:1px solid var(--line);border-radius:6px;cursor:pointer}
 .localimport .stat{font-size:11px;color:var(--sub)}
+.localimport .cover{flex-basis:100%;font-size:11px;line-height:1.55;color:var(--sub);padding:4px 0 0}
 .match{border:1px solid var(--line);border-radius:6px;padding:9px 11px;margin:8px 0;background:#fff}
 .match .row{display:flex;align-items:flex-start;gap:9px}
 .match input[type=radio]{margin-top:5px}
@@ -380,7 +381,7 @@ function lineBusyText(){
 }
 function lineHint(){
   return GROUP_LINE==="local"
-    ?'<div class="meta">国内本地库：教育部全国高校名单（学校层）+ 已核验的校内研究所/中心/团队。输入简称、全称、别名或拼音，如“草微中心”“数智供应链”。</div>'
+    ?'<div class="meta">国内本地库：学校层覆盖教育部全国高校名单 3196 所；院内单元已导入兰州大学校级科研机构与各学院院所（含马克思主义学院、草科院、管理学院等）。其他高校院内单元暂未全量导入，可在下方用 CSV/JSON 补充。</div>'
     :'<div class="meta">全球公开库：输入研究所、实验室、中心或大学名称，检索 ROR / OpenAlex / Wikidata。大学内部院系若不收录，请切到“国内本地库”或手填。</div>';
 }
 function setGroupLine(line,silent){
@@ -390,7 +391,7 @@ function setGroupLine(line,silent){
     btn.classList.toggle("on",btn.dataset.line===GROUP_LINE);
   });
   const input=$("id_research_group");
-  if(input)input.placeholder=GROUP_LINE==="local"?"例：草微中心、数智供应链管理研究所、兰州大学":"例：Max Planck Institute for Biogeochemistry、Chinese Academy of Sciences";
+  if(input)input.placeholder=GROUP_LINE==="local"?"例：草微中心、数智供应链管理研究所、马克思主义学院":"例：Max Planck Institute for Biogeochemistry、Chinese Academy of Sciences";
   const imp=$("localimport");if(imp)imp.classList.toggle("on",GROUP_LINE==="local");
   if(GROUP_LINE==="local")loadLocalStats();
   hideSuggest("group");
@@ -400,7 +401,9 @@ function setGroupLine(line,silent){
 function loadLocalStats(){
   const apply=(d)=>{
     LOCAL_STATS=d;const el=$("localstats");
-    if(el)el.textContent="本地库 "+d.total+" 条 · "+Object.entries(d.by_source||{}).map(([k,v])=>k+" "+v).join(" · ");
+    if(el)el.textContent="本地库 "+d.total+" 条 · 学校层 "+(d.school_units||0)+" · 兰大院内 "+(d.lzu_units||0)+" 条";
+    const cov=$("localcover");
+    if(cov)cov.textContent=d.coverage_note||"";
   };
   if(LOCAL_STATS){apply(LOCAL_STATS);return;}
   fetch("/api/groups/local/stats").then(r=>r.json()).then(apply).catch(()=>{});
@@ -423,7 +426,9 @@ function importLocalFile(file){
         LOCAL_STATS=d.stats||null;
         if(msg)msg.innerHTML='<span class="good">导入完成：新增 '+d.added+' 条，更新 '+d.updated+' 条，本地库共 '+d.total+' 条。</span>';
         const el=$("localstats");
-        if(el&&LOCAL_STATS)el.textContent="本地库 "+LOCAL_STATS.total+" 条";
+        if(el&&LOCAL_STATS)el.textContent="本地库 "+LOCAL_STATS.total+" 条 · 学校层 "+(LOCAL_STATS.school_units||0)+" · 兰大院内 "+(LOCAL_STATS.lzu_units||0)+" 条";
+        const cov=$("localcover");
+        if(cov&&LOCAL_STATS)cov.textContent=LOCAL_STATS.coverage_note||"";
         loadSuggestions("group");
       }).catch(e=>{const msg=$("localmsg");if(msg)msg.textContent="导入失败："+e;});
   };
@@ -629,7 +634,7 @@ function renderTeam(){
       input.autocomplete="off";
       input.oninput=()=>scheduleSuggest(sKey);
       if(f.key==="research_group"){
-        input.placeholder=GROUP_LINE==="local"?"例：草微中心、数智供应链管理研究所、兰州大学":"例：Max Planck Institute for Biogeochemistry、Chinese Academy of Sciences";
+        input.placeholder=GROUP_LINE==="local"?"例：草微中心、数智供应链管理研究所、马克思主义学院":"例：Max Planck Institute for Biogeochemistry、Chinese Academy of Sciences";
         input.onfocus=()=>{if(!input.value.trim())loadSuggestions("group");};
         const tabs=document.createElement("div");tabs.className="linetabs";
         tabs.innerHTML='<button type="button" data-line="global">全球机构库</button>'+
@@ -641,7 +646,8 @@ function renderTeam(){
           '<button type="button" id="localpick">导入 CSV / JSON</button>'+
           '<input type="file" id="localfile" accept=".csv,.json,.txt" style="display:none">'+
           '<span class="stat" id="localstats">本地库读取中…</span>'+
-          '<span class="stat" id="localmsg"></span>';
+          '<span class="stat" id="localmsg"></span>'+
+          '<div class="cover" id="localcover"></div>';
         const sug=document.createElement("div");sug.className="suggest";sug.id="sug_"+sKey;
         wrap.append(lab,tabs,input,imp,sug);quick.appendChild(wrap);
         setTimeout(()=>{

@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-VERSION = "0.12.0"
+VERSION = "0.12.1"
 
 HOME = Path(os.environ.get("LITRADAR_HOME", Path.home() / ".litradar"))
 DATA_DIR = HOME / "data"

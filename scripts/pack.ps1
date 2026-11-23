@@ -8,11 +8,12 @@ New-Item -ItemType Directory -Force -Path $Dist | Out-Null
 # 1) 插件包
 Push-Location (Join-Path $Root "dsh-plugin")
 try {
-  npm pack --pack-destination $Dist
+  & npm.cmd pack --pack-destination $Dist
   if ($LASTEXITCODE -ne 0) { throw "npm pack 失败" }
 } finally { Pop-Location }
 
 # 2) 引擎压缩包（只带运行时需要的文件）
+$Dist = Join-Path $Root "dist"
 $Stage = Join-Path $Dist "_stage"
 New-Item -ItemType Directory -Force -Path $Stage | Out-Null
 Copy-Item (Join-Path $Root "src") $Stage -Recurse

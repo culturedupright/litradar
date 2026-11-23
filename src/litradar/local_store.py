@@ -3,7 +3,7 @@
 B 线只读用户目录里的本地库，不碰 ROR / OpenAlex / Wikidata。
 种子分两层：
 1. 教育部全国普通/成人高校名单（学校层，截至 2026-06-17）；
-2. 兰州大学草业学院与管理学院的院内研究所/中心/团队（人工核验档）。
+2. 兰州大学校级科研机构与各学院院所（按学校/学院官网整理，可增量导入）。
 用户导入的 CSV/JSON 与种子同库，用 ``cn:`` 前缀 ID，便于与全球线分开。
 """
 from __future__ import annotations
@@ -23,7 +23,7 @@ from . import config
 STORE_PATH = config.DATA_DIR / "local_units.json"
 SEED_DIR = Path(__file__).resolve().parent / "data"
 SEED_FILES = ("cn_universities_seed.json", "lzu_units_seed.json")
-STORE_VERSION = "0.12.0"
+STORE_VERSION = "0.12.1"
 
 _LOCK = threading.RLock()
 _CACHE: list[dict[str, Any]] | None = None
@@ -276,8 +276,28 @@ def stats() -> dict[str, Any]:
     for item in rows:
         by_label[item.get("source_label", "")] = by_label.get(item.get("source_label", ""), 0) + 1
         by_type[item.get("type_label", "")] = by_type.get(item.get("type_label", ""), 0) + 1
-    return {"total": len(rows), "by_source": by_label, "by_type": by_type,
-            "store": str(STORE_PATH)}
+    school_units = sum(1 for item in rows if item.get("type") == "university")
+    lzu_units = [
+        item for item in rows
+        if item.get("unit") == "兰州大学" and item.get("type") != "university"
+    ]
+    departments = sorted({item.get("department", "") for item in lzu_units if item.get("department")})
+    coverage_note = (
+        f"学校层：教育部全国高校名单 {school_units} 所。"
+        f"院内单元：已导入兰州大学校级科研机构与学院院所 {len(lzu_units)} 条，"
+        f"覆盖 {len(departments)} 个院系/校级方向；官网只写数量未列名的少数单元未编造。"
+        "其他高校院内单元暂未全量导入，可用 CSV/JSON 增量导入。"
+    )
+    return {
+        "total": len(rows),
+        "school_units": school_units,
+        "lzu_units": len(lzu_units),
+        "lzu_departments": len(departments),
+        "coverage_note": coverage_note,
+        "by_source": by_label,
+        "by_type": by_type,
+        "store": str(STORE_PATH),
+    }
 
 
 _FIELD_MAP = {

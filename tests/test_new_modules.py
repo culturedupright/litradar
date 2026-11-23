@@ -204,6 +204,23 @@ def test_local_directory_contains_management_institutes() -> None:
     assert rows[0]["line"] == "local"
 
 
+def test_local_directory_covers_lzu_colleges_and_marxism() -> None:
+    rows = groups.search_local("马克思主义学院", limit=20)
+    assert len(rows) >= 5
+    names = {row["name"] for row in rows}
+    assert "马克思主义基本原理研究所" in names
+    assert "思想政治教育研究所" in names
+    exact = groups.search_local("马克思主义基本原理研究所")
+    assert exact and exact[0]["name"] == "马克思主义基本原理研究所"
+    assert exact[0]["department"] == "马克思主义学院"
+    lit = groups.search_local("文学院", limit=20)
+    assert any(row["name"] == "中国古代文学与古典文献学研究所" for row in lit)
+    stats = groups.local_store.stats()
+    assert stats["lzu_units"] >= 300
+    assert stats["lzu_departments"] >= 30
+    assert "其他高校" in stats["coverage_note"]
+
+
 def test_local_directory_contains_moe_university_base() -> None:
     rows = groups.search_local("兰州大学", limit=5)
     assert rows and rows[0]["type"] == "university"
