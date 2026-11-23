@@ -88,9 +88,12 @@ def run_pipeline(direction: str, *, platform: str = "不限", budget: str = "不
                  oecd_code: str = "",
                  team_profile: dict | None = None,
                  owner: str = "",
+                 proposal_mode: str = "cn",
+                 preview_docx: bool = False,
                  progress: Progress | None = None,
                  note: Note | None = None) -> dict:
     ensure_dirs()
+    proposal_mode = proposal.normalize_mode(proposal_mode)
     field_code = oecd.validate(oecd_code)
     if team_profile:
         cond = team.conditions(team_profile)
@@ -183,15 +186,25 @@ def run_pipeline(direction: str, *, platform: str = "不限", budget: str = "不
                  "figure_patterns": [], "directions": []}
         report_path = write_markdown(run_dir / "report.md", direction, [], [],
                                      empty, {}, audit=audit, domain=domain)
-        proposal_path = proposal.write_markdown(
-            run_dir / "开题报告.md", direction, empty, [], audit,
-            field_code=field_code, platform=platform, budget=budget, period=period,
-            wet_lab=wet_lab, team_profile=team_profile, owner=owner, stats=source_stats)
-        docx_path = proposal.write_docx(proposal_path, run_dir / "开题报告.docx", direction)
+        package = proposal.write_package(
+            run_dir, direction, empty, [], audit,
+            mode=proposal_mode, field_code=field_code, platform=platform,
+            budget=budget, period=period, wet_lab=wet_lab,
+            team_profile=team_profile, owner=owner, stats=source_stats,
+            query=query, pico=pico, framework=framework)
+        proposal_path = Path(package["markdown"])
+        meta_path = Path(package["metadata"])
+        docx_path = proposal.write_docx(
+            proposal_path, run_dir / "proposal.preview.docx", direction
+        ) if preview_docx else None
         to_csv(conn, run_dir / "papers.csv", {d["id"] for d in decisions})
         (run_dir / "summary.json").write_text(
             json.dumps({"direction": direction, "query": query, "pico": pico,
                         "framework": framework, "domain": domain.key,
+                        "platform": platform, "budget": budget,
+                        "period": period, "wet_lab": wet_lab,
+                        "proposal_mode": proposal_mode,
+                        "proposal_meta": str(meta_path),
                         "audit": audit, "tokens": tokens, "summary": empty,
                         "sources": source_stats, "oecd": oecd.label(field_code)},
                        ensure_ascii=False, indent=2), encoding="utf-8")
@@ -200,6 +213,8 @@ def run_pipeline(direction: str, *, platform: str = "不限", budget: str = "不
         _step(progress, "完成", f"没有同域文献，已写体检报告：{report_path}", 100)
         return {"run_dir": str(run_dir), "report": str(report_path), "query": query,
                 "proposal": str(proposal_path),
+                "proposal_meta": str(meta_path),
+                "proposal_mode": proposal_mode,
                 "proposal_docx": str(docx_path) if docx_path else "",
                 "found": added, "kept": 0, "dropped": dropped, "fetched": 0,
                 "cards": 0, "summary": empty, "cards_data": [], "figures": {},
@@ -307,17 +322,25 @@ def run_pipeline(direction: str, *, platform: str = "不限", budget: str = "不
     _n(note, "写简报：组装页签并落盘 report.md / papers.csv / summary.json")
     report_path = write_markdown(run_dir / "report.md", direction, all_cards, all_cards,
                                  summary, figs_map, audit=audit, domain=domain)
-    _step(progress, "生成开题报告", "按通行九节骨架排版，附表进附录", 96)
-    proposal_path = proposal.write_markdown(
-        run_dir / "开题报告.md", direction, summary, all_cards, audit,
-        field_code=field_code, platform=platform, budget=budget, period=period,
-        wet_lab=wet_lab, team_profile=team_profile, owner=owner, stats=source_stats)
-    docx_path = proposal.write_docx(proposal_path, run_dir / "开题报告.docx", direction)
+    _step(progress, "生成开题报告", f"按“{proposal.MODE_LABELS[proposal_mode]}”结构排版，附表进附录", 96)
+    package = proposal.write_package(
+        run_dir, direction, summary, all_cards, audit,
+        mode=proposal_mode, field_code=field_code, platform=platform,
+        budget=budget, period=period, wet_lab=wet_lab,
+        team_profile=team_profile, owner=owner, stats=source_stats,
+        query=query, pico=pico, framework=framework)
+    proposal_path = Path(package["markdown"])
+    meta_path = Path(package["metadata"])
+    docx_path = proposal.write_docx(
+        proposal_path, run_dir / "proposal.preview.docx", direction
+    ) if preview_docx else None
     to_csv(conn, run_dir / "papers.csv", {d["id"] for d in decisions})
     (run_dir / "summary.json").write_text(
         json.dumps({"direction": direction, "platform": platform, "budget": budget,
                     "period": period, "wet_lab": wet_lab, "query": query,
                     "pico": pico, "framework": framework, "domain": domain.key,
+                    "proposal_mode": proposal_mode,
+                    "proposal_meta": str(meta_path),
                     "audit": audit, "search_limit": search_limit,
                     "fetch_limit": fetch_limit, "card_limit": card_limit,
                     "tokens": tokens, "summary": summary,
@@ -332,6 +355,8 @@ def run_pipeline(direction: str, *, platform: str = "不限", budget: str = "不
         "run_dir": str(run_dir),
         "report": str(report_path),
         "proposal": str(proposal_path),
+        "proposal_meta": str(meta_path),
+        "proposal_mode": proposal_mode,
         "proposal_docx": str(docx_path) if docx_path else "",
         "query": query,
         "found": added,

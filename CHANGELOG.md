@@ -3,6 +3,28 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.13.0] - 2026-11-23
+
+### Added
+- 开题报告双模式：`cn` 国内通行九节、`intl` 国际 research proposal；两套模式共用同一次检索、卡片与聚合，只换大纲和章节写法
+- `proposal.py` 新增 `metadata()`、`write_package()`、`write_sources_csv()`：每次运行输出 `proposal.md`、`proposal.meta.json`、`sources.csv`、`assets/`
+- `proposal.meta.json` 记录模式、章节序列、引用格式、字数说明、证据统计、`content_sha256` 与交接文件名
+- CLI 新增 `--proposal-mode cn|intl` 与 `--preview-docx`
+- Web 新增“报告结构”下拉框、“交接元数据.json”下载、可选“生成预览 Word（非正式排版）”
+- 新增 `docs/proposal_formats.md`：双模式与下游排版 agent 的交接契约
+
+### Changed
+- 主流程不再默认生成 `开题报告.docx`；Word 降级为可选 `proposal.preview.docx`，明确是预览版，不是正式排版
+- `proposal.md` 成为唯一内容源；页面“开题报告.md”链接仍可打开
+- `pipeline.run_pipeline()` 新增 `proposal_mode` / `preview_docx` 参数，返回值新增 `proposal_meta`、`proposal_mode`
+- 测试补双模式、元数据、交接包与“无预览 docx”用例
+
+### Boundary
+- 国内开题报告没有全国统一强制国标，`cn` 是通用九节骨架，不是某校官方模板
+- `intl` 当前输出英文标题 + 中文正文，英文成稿由下游翻译/排版 agent 处理
+- 已重新打包 Windows 安装器、引擎 EXE、源码包与 DSH 插件包，并发布 GitHub Release `v0.13.0`
+- 安装包内引擎与插件均为 0.13.0；本地 DSH 安装路径为 `engine-0.13.0` 与 `litradar-engine-0.13.0.exe`
+
 ## [0.12.1] - 2026-11-23
 
 ### Added

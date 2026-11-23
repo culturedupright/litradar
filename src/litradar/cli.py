@@ -133,11 +133,15 @@ def cmd_run(args: argparse.Namespace) -> int:
         sources_list=args.sources.split(",") if args.sources else ["europepmc"],
         oecd_code=args.oecd,
         team_profile=team.load(),
+        proposal_mode=args.proposal_mode,
+        preview_docx=args.preview_docx,
         progress=progress,
     )
     print(f"\n简报：{result['report']}")
-    print(f"开题报告：{result['proposal']}"
-          + (f"（Word：{result['proposal_docx']}）" if result.get("proposal_docx") else ""))
+    print(f"开题报告（{result.get('proposal_mode', 'cn')}）：{result['proposal']}")
+    print(f"交接元数据：{result.get('proposal_meta', '')}")
+    if result.get("proposal_docx"):
+        print(f"预览 Word（非正式排版）：{result['proposal_docx']}")
     print(f"候选 {result['found']} 篇 / 同域 {result.get('kept', result['found'])} 篇"
           f" / 挡掉 {result.get('dropped', 0)} 篇"
           f" / 全文 {result['fetched']} 篇 / 卡片 {result['cards']} 张"
@@ -229,6 +233,10 @@ def build_parser() -> argparse.ArgumentParser:
                        help="逗号分隔：wos,scopus,pubmed,europepmc,crossref,openalex,"
                             "semanticscholar,arxiv（CNKI 等机构订阅源不直连）")
     p_run.add_argument("--oecd", default="", help="OECD 子类代码，如 2.5")
+    p_run.add_argument("--proposal-mode", default="cn", choices=["cn", "intl"],
+                       help="开题报告结构：cn=国内九节 / intl=国际 research proposal")
+    p_run.add_argument("--preview-docx", action="store_true",
+                       help="额外生成预览版 Word（正式排版交给下游 agent）")
     p_run.set_defaults(func=cmd_run)
     _add_db(p_run)
 

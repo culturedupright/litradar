@@ -10,7 +10,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from . import credentials, groups, identity, local_store, oecd, team
-from .config import DB_PATH
+from .config import DB_PATH, VERSION
 from .llm import resolve_model, set_activity
 from .model_catalog import list_models
 from .pipeline import run_pipeline
@@ -178,9 +178,13 @@ button:disabled{opacity:.45;cursor:not-allowed}
   <div class="field"><label>精读上限（篇）</label><input id="fetch" type="number" value="8" min="1" max="30"></div>
   <div class="field"><label>卡片上限（篇）</label><input id="cards" type="number" value="8" min="1" max="30"></div>
   <div class="field span2"><label>申请人（写在开题报告封面）</label><input id="owner" placeholder="姓名，可留空"></div>
+  <div class="field"><label>报告结构</label><select id="proposal_mode">
+    <option value="cn" selected>国内开题报告（九节）</option>
+    <option value="intl">国际 Research Proposal</option>
+  </select></div>
   <div class="field"><label>模型（读取自 DSH）</label><select id="model"><option value="">正在读取 DSH 模型…</option></select></div>
 </div>
-<div class="actions"><button id="run">开始分析</button><span class="hint">全程自动跑：检索 → 抓全文 → 抽卡片 → 聚合 → 出简报</span></div>
+<div class="actions"><button id="run">开始分析</button><label class="hint" style="margin-left:10px"><input id="preview_docx" type="checkbox" style="width:auto;margin-right:5px">生成预览 Word（非正式排版）</label><span class="hint">全程自动跑：检索 → 抓全文 → 抽卡片 → 聚合 → 出简报</span></div>
 </div>
 
 <div class="panel">
@@ -225,7 +229,8 @@ button:disabled{opacity:.45;cursor:not-allowed}
   <div class="step"><span id="meta"></span>
     <span><a id="dlreport" href="#" style="color:var(--accent)">证据简报.md</a>
     <a id="dlproposal" href="#" style="color:var(--accent);margin-left:12px">开题报告.md</a>
-    <a id="dldocx" href="#" style="color:var(--accent);margin-left:12px">开题报告.docx</a></span></div>
+    <a id="dlmeta" href="#" style="color:var(--accent);margin-left:12px">交接元数据.json</a>
+    <a id="dldocx" href="#" style="color:var(--accent);margin-left:12px">预览 Word</a></span></div>
   <div class="tabs" id="tabs"></div>
   <div class="md" id="md"></div>
 </div>
@@ -827,16 +832,20 @@ function render(md){
 function showResult(res){
   $("result").style.display="block";
   const src=(res.sources||[]).map(s=>s.label+" "+s.count).join(" · ");
-  $("meta").textContent=`检索 ${res.found} 篇（${src||"Europe PMC"}） · 同域 ${res.kept??res.found} 篇 · 挡掉 ${res.dropped??0} 篇 · 全文 ${res.fetched} 篇 · 卡片 ${res.cards} 张 · tokens ${res.tokens}`;
+  const modeLabel=res.proposal_mode==="intl"?"国际 Research Proposal":"国内九节";
+  $("meta").textContent=`检索 ${res.found} 篇（${src||"Europe PMC"}） · 同域 ${res.kept??res.found} 篇 · 挡掉 ${res.dropped??0} 篇 · 全文 ${res.fetched} 篇 · 卡片 ${res.cards} 张 · 结构 ${modeLabel} · tokens ${res.tokens}`;
   $("dlreport").href="/api/report?id="+taskId;
   $("dlproposal").href="/api/proposal?id="+taskId;
+  $("dlmeta").href="/api/proposal.meta?id="+taskId;
+  $("dlmeta").style.display=res.proposal_meta?"inline":"none";
   $("dldocx").href="/api/proposal.docx?id="+taskId;
   $("dldocx").style.display=res.proposal_docx?"inline":"none";
   Promise.all([
     fetch("/api/proposal?id="+taskId).then(r=>r.text()).catch(()=>""),
     fetch("/api/report?id="+taskId).then(r=>r.text()).catch(()=>"")
   ]).then(([pmd,rmd])=>{
-    const secs=splitSections(pmd).map(s=>({title:"开题 · "+s.title,body:s.body}))
+    const prefix=res.proposal_mode==="intl"?"Proposal · ":"开题 · ";
+    const secs=splitSections(pmd).map(s=>({title:prefix+s.title,body:s.body}))
       .concat(splitSections(rmd).map(s=>({title:"证据 · "+s.title,body:s.body})));
     const tabs=$("tabs");tabs.innerHTML="";
     secs.forEach((s,i)=>{
@@ -901,6 +910,8 @@ $("run").onclick=()=>{
   const payload={direction,domain_key:"auto",platform:cond.experiment,budget:cond.budget,period:cond.period,
     wet_lab:cond.wet,years:`${fy}-${ty}`,search_limit:+$("search").value,
     fetch_limit:+$("fetch").value,card_limit:+$("cards").value,model_name:$("model").value,
+    proposal_mode:$("proposal_mode").value,
+    preview_docx:$("preview_docx").checked,
     sources,oecd:$("oecd_sub").value,team_profile:teamProfile(),owner:$("owner").value};
   fetch("/api/run",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)})
     .then(r=>r.json()).then(d=>{taskId=d.id;timer=setInterval(poll,1200);poll();})
@@ -913,7 +924,7 @@ $("run").onclick=()=>{
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "LitRadar/0.10"
+    server_version = "LitRadar/0.13"
 
     def log_message(self, fmt: str, *args) -> None:  # 静默，避免刷屏
         return
@@ -955,7 +966,8 @@ class Handler(BaseHTTPRequestHandler):
                 has_key = bool(api_key)
             except Exception:
                 model, has_key = "", False
-            self._json({"ok": True, "app": "litradar", "model": model, "key": has_key})
+            self._json({"ok": True, "app": "litradar", "version": VERSION,
+                        "model": model, "key": has_key})
             return
         if route.path == "/api/groups":
             q = (query.get("q") or [""])[0]
@@ -1036,13 +1048,23 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, Path(task["result"]["proposal"]).read_bytes(),
                        "text/markdown; charset=utf-8")
             return
+        if route.path == "/api/proposal.meta":
+            task_id = (query.get("id") or [""])[0]
+            with LOCK:
+                task = TASKS.get(task_id)
+            path = (task or {}).get("result", {}).get("proposal_meta") if task else ""
+            if not path or not Path(path).exists():
+                self._json({"error": "还没有交接元数据"}, 404)
+                return
+            self._send(200, Path(path).read_bytes(), "application/json; charset=utf-8")
+            return
         if route.path == "/api/proposal.docx":
             task_id = (query.get("id") or [""])[0]
             with LOCK:
                 task = TASKS.get(task_id)
             path = (task or {}).get("result", {}).get("proposal_docx") if task else ""
             if not path or not Path(path).exists():
-                self._json({"error": "没有 Word 版（可能未装 python-docx）"}, 404)
+                self._json({"error": "没有预览 Word 版（可能未装 python-docx 或未开启预览）"}, 404)
                 return
             body = Path(path).read_bytes()
             self.send_response(200)
@@ -1170,6 +1192,8 @@ class Handler(BaseHTTPRequestHandler):
                     oecd_code=str(payload.get("oecd") or ""),
                     team_profile=payload.get("team_profile") or team.defaults(),
                     owner=str(payload.get("owner") or ""),
+                    proposal_mode=str(payload.get("proposal_mode") or "cn"),
+                    preview_docx=bool(payload.get("preview_docx")),
                     progress=progress,
                     note=note,
                 )

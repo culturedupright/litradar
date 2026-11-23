@@ -119,6 +119,47 @@ def test_proposal_has_nine_sections_and_appendix() -> None:
     assert "待申请人补充" in md
 
 
+def test_proposal_intl_structure_and_handoff_metadata(tmp_path: Path) -> None:
+    md = proposal.build("忆阻器", SUMMARY, CARDS, AUDIT, mode="intl", field_code="2.5",
+                        platform="湿+干", budget="5–20 万", period="1 年",
+                        team_profile=None, owner="潘鹏旭")
+    for title in ("Abstract", "1. Introduction and Problem Statement",
+                  "2. Literature Review and Research Gap",
+                  "3. Research Questions and Hypotheses",
+                  "4. Theoretical / Conceptual Framework",
+                  "5. Research Design and Methodology",
+                  "6. Data, Materials, and Ethical Considerations",
+                  "7. Timeline and Budget", "8. Expected Outcomes and Contribution",
+                  "9. Risk, Limitations, and Mitigation", "10. References"):
+        assert title in md
+    assert "Appendix A" in md and "Appendix C" in md
+    assert "待申请人补充" in md
+
+    meta = proposal.metadata("忆阻器", SUMMARY, CARDS, AUDIT, mode="intl",
+                             field_code="2.5", owner="潘鹏旭", markdown_text=md,
+                             query="memristor", framework="PSPP")
+    assert meta["mode"] == "intl"
+    assert meta["sections"][1]["title"].startswith("1. Introduction")
+    assert meta["evidence"]["cards"] == 1
+    assert meta["content_sha256"]
+
+    package = proposal.write_package(tmp_path, "忆阻器", SUMMARY, CARDS, AUDIT,
+                                     mode="intl", field_code="2.5", owner="潘鹏旭",
+                                     query="memristor", framework="PSPP")
+    assert Path(package["markdown"]).exists()
+    assert Path(package["metadata"]).exists()
+    assert Path(package["sources"]).exists()
+    assert (tmp_path / "assets" / "README.md").exists()
+    assert "C1" in Path(package["sources"]).read_text(encoding="utf-8-sig")
+    assert (tmp_path / "proposal.preview.docx").exists() is False
+
+    cn_meta = proposal.metadata("忆阻器", SUMMARY, CARDS, AUDIT, mode="cn",
+                                field_code="2.5", markdown_text="# 忆阻器：开题报告")
+    assert cn_meta["doc_type"] == "cn_kaiti_report"
+    assert cn_meta["sections"][0]["title"] == "一、立项依据"
+    assert "[C1]" in md  # 参考文献使用 C 级引文编号
+
+
 def test_source_helpers() -> None:
     assert tokens("(memristor OR RRAM) AND neuromorphic")[:2] == ["memristor", "rram"]
     assert _inverted({"a": [0], "b": [1]}) == "a b"

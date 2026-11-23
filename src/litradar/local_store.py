@@ -23,7 +23,7 @@ from . import config
 STORE_PATH = config.DATA_DIR / "local_units.json"
 SEED_DIR = Path(__file__).resolve().parent / "data"
 SEED_FILES = ("cn_universities_seed.json", "lzu_units_seed.json")
-STORE_VERSION = "0.12.1"
+STORE_VERSION = "0.13.0"
 
 _LOCK = threading.RLock()
 _CACHE: list[dict[str, Any]] | None = None
