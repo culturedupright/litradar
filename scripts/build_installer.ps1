@@ -10,6 +10,7 @@ if (-not (Test-Path (Join-Path $Dist "litradar-engine.exe"))) {
   try {
     & $Py -m PyInstaller --noconfirm --clean --onefile --noconsole --name litradar-engine `
       --paths src --hidden-import yaml --collect-all docx --collect-all pypinyin `
+      --add-data "src\litradar\data;litradar\data" `
       --distpath (Join-Path $Dist "exe") --workpath (Join-Path $Root "build") `
       packaging\engine_entry.py
     if ($LASTEXITCODE -ne 0) { throw "引擎 EXE 构建失败" }

@@ -1,11 +1,11 @@
-"""研究单元解析：全球公开库 + 本地核验补充档。
+"""研究单元检索：全球公开库（A 线）+ 国内本地库（B 线）。
 
-设计口径：
-- 主路径不绑定任何学校：ROR 查全球注册机构/实验室，OpenAlex 补机构与下属设施，Wikidata 补中文/英文实体；
-- 本地核验档只用于全球库没有收录的院系内部研究所/中心，保留 source 与 verified，不冒充全球全集；
-- 组织单元按 CERIF OrgUnit 的父子层级、负责人、成员、来源与有效期建模；
-- 不按姓名、论文数猜职称或负责人；找不到就留空，让申请人回官网核对；
-- 搜索只负责“找到哪个研究单元”，不替用户判断某个人是谁。
+两条线彼此独立：
+- A 线只查 ROR v2 / OpenAlex institutions / Wikidata，空查询不返回任何本地项；
+- B 线只查 ``local_store`` 里的国内本地库，不联网；
+- 两边 ID 空间分开：全球 ``ror:`` / ``openalex:`` / ``wikidata:``，本地 ``cn:`` 或 ``lzu-``；
+- 同名不自动合并，只有全球记录明确带 ROR 映射时才在 A 线内部合并；
+- 不按姓名、论文数猜职称或负责人；负责人字段只来自官网核验档。
 """
 from __future__ import annotations
 
@@ -15,140 +15,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 from urllib.parse import urlencode
 
-INSTITUTION = {
-    "id": "lzu",
-    "name": "兰州大学",
-    "name_en": "Lanzhou University",
-    "type": "university",
-    "ror": "https://ror.org/01mkqqe32",
-    "country": "中国",
-}
-
-COLLEGE = {
-    "id": "lzu-caoye",
-    "name": "草地农业科技学院",
-    "name_en": "College of Pastoral Agriculture Science and Technology",
-    "type": "college",
-    "parent_id": "lzu",
-    "source": "https://caoye.lzu.edu.cn/xueyuangaikuang/jigoushezhi/index.html",
-}
-
-COLLEGE_SOURCE = "https://caoye.lzu.edu.cn/xueyuangaikuang/jigoushezhi/index.html"
-CENTER_SOURCE = "http://cgm.lzu.edu.cn/index.htm"
-VERIFIED = "2026-11-22"
-PLATFORM = "草种创新与草地农业生态系统全国重点实验室"
-
-_COMMON = {
-    "institution": "兰州大学",
-    "department": "草地农业科技学院",
-    "unit_ror": INSTITUTION["ror"],
-    "parent_id": COLLEGE["id"],
-    "platform": f"{PLATFORM}（学院共享，按课题组实际使用核对）",
-    "source": COLLEGE_SOURCE,
-    "source_kind": "local",
-    "source_label": "本地核验档",
-    "verified": VERIFIED,
-}
-
-LOCAL_GROUPS: tuple[dict[str, Any], ...] = (
-    {
-        **_COMMON, "id": "lzu-caoye-grassland-protection",
-        "name": "草地保护研究所", "short": "草保所", "type": "institute",
-        "type_label": "研究所",
-        "aliases": ["草地保护所", "草地保护", "草保"],
-        "directions": [], "leader": "", "members": [],
-        "note": "学院机构设置页只列名称；方向、负责人和成员需按研究所页面或公开师资补齐。",
-    },
-    {
-        **_COMMON, "id": "lzu-caoye-breeding-seed",
-        "name": "草类植物育种与种子研究所", "short": "育种与种子所", "type": "institute",
-        "type_label": "研究所",
-        "aliases": ["草类植物育种与种子所", "育种与种子所", "育种所", "草种所", "种子所"],
-        "directions": [], "leader": "", "members": [],
-        "note": "学院机构设置页只列名称；方向、负责人和成员需按研究所页面或公开师资补齐。",
-    },
-    {
-        **_COMMON, "id": "lzu-caoye-grassland-ecology",
-        "name": "草地生态研究所", "short": "生态所", "type": "institute",
-        "type_label": "研究所",
-        "aliases": ["草地生态所", "生态所"],
-        "directions": [], "leader": "", "members": [],
-        "note": "学院机构设置页只列名称；方向、负责人和成员需按研究所页面或公开师资补齐。",
-    },
-    {
-        **_COMMON, "id": "lzu-caoye-rural-grassland",
-        "name": "农区草业研究所", "short": "农区草业所", "type": "institute",
-        "type_label": "研究所",
-        "aliases": ["农区草业所", "农区所"],
-        "directions": [], "leader": "", "members": [],
-        "note": "学院机构设置页只列名称；方向、负责人和成员需按研究所页面或公开师资补齐。",
-    },
-    {
-        **_COMMON, "id": "lzu-caoye-element-management",
-        "name": "草业系统元素利用与管理研究所", "short": "元素利用所", "type": "institute",
-        "type_label": "研究所",
-        "aliases": ["草业系统元素利用与管理所", "元素利用所", "元素所"],
-        "directions": [], "leader": "", "members": [],
-        "note": "学院机构设置页只列名称；方向、负责人和成员需按研究所页面或公开师资补齐。",
-    },
-    {
-        **_COMMON, "id": "lzu-caoye-livestock-system",
-        "name": "草畜生产系统调控研究所", "short": "草畜调控所", "type": "institute",
-        "type_label": "研究所",
-        "aliases": ["草畜生产系统调控所", "草畜调控所", "草畜所"],
-        "directions": [], "leader": "", "members": [],
-        "note": "学院机构设置页只列名称；方向、负责人和成员需按研究所页面或公开师资补齐。",
-    },
-    {
-        **_COMMON, "id": "lzu-caoye-ruminant",
-        "name": "反刍动物研究所", "short": "反刍所", "type": "institute",
-        "type_label": "研究所",
-        "aliases": ["反刍动物所", "反刍所"],
-        "directions": [], "leader": "", "members": [],
-        "note": "学院机构设置页只列名称；方向、负责人和成员需按研究所页面或公开师资补齐。",
-    },
-    {
-        **_COMMON, "id": "lzu-caoye-stress-physiology",
-        "name": "草类植物逆境生理与遗传改良研究所", "short": "逆境生理所", "type": "institute",
-        "type_label": "研究所",
-        "aliases": ["草类植物逆境生理与遗传改良所", "逆境生理所", "逆境所", "遗传改良所"],
-        "directions": [], "leader": "", "members": [],
-        "note": "学院机构设置页只列名称；方向、负责人和成员需按研究所页面或公开师资补齐。",
-    },
-    {
-        **_COMMON, "id": "lzu-caoye-remote-sensing-gis",
-        "name": "草地遥感与地理信息系统研究所", "short": "遥感与GIS所", "type": "institute",
-        "type_label": "研究所",
-        "aliases": ["草地遥感与地理信息系统所", "遥感与GIS所", "遥感所", "GIS所"],
-        "directions": [], "leader": "", "members": [],
-        "note": "学院机构设置页只列名称；方向、负责人和成员需按研究所页面或公开师资补齐。",
-    },
-    {
-        **_COMMON, "id": "lzu-caoye-system-analysis",
-        "name": "草业系统分析和社会发展研究所", "short": "系统分析所", "type": "institute",
-        "type_label": "研究所",
-        "aliases": ["草业系统分析和社会发展所", "草业系统分析所", "系统分析所", "社会发展所"],
-        "directions": [], "leader": "", "members": [],
-        "note": "学院机构设置页只列名称；方向、负责人和成员需按研究所页面或公开师资补齐。",
-    },
-    {
-        **_COMMON,
-        "id": "lzu-caoye-microbial-center",
-        "name": "草地微生物研究中心", "short": "草微中心", "type": "center",
-        "type_label": "研究中心",
-        "aliases": ["草微中心", "草地微生物中心", "微生物中心", "草微"],
-        "leader": "南志标",
-        "deputy_leaders": ["苟小军", "杨云锋"],
-        "chief_scientist": "周集中",
-        "members": ["邓建明", "李祥锴", "张金林"],
-        "directions": ["草地土壤微生物", "植物微生物", "动物微生物", "系统微生物学理论与技术"],
-        "platform": f"{PLATFORM}（中心依托）",
-        "platform_level": "全国重点实验室",
-        "source": CENTER_SOURCE,
-        "verified": VERIFIED,
-        "note": "中心 2019 年成立；官网教师风采只列部分成员，完整名单需向中心确认。",
-    },
-)
+from . import local_store
 
 ROR_API = "https://api.ror.org/v2/organizations"
 OPENALEX_API = "https://api.openalex.org/institutions"
@@ -261,6 +128,7 @@ def _normalize_ror(item: dict[str, Any]) -> dict[str, Any] | None:
         note = f"ROR 公开机构记录，上级单位：{parent['label']}；ROR 不保证收录该上级单位内部的全部研究组。"
     return {
         "id": "ror:" + ror_url.rsplit("/", 1)[-1],
+        "line": "global",
         "source_kind": "ror",
         "source_label": "ROR",
         "source": source,
@@ -310,6 +178,7 @@ def _normalize_openalex(item: dict[str, Any]) -> dict[str, Any] | None:
     unit = str(parent.get("display_name") or "")
     return {
         "id": "openalex:" + url.rsplit("/", 1)[-1],
+        "line": "global",
         "source_kind": "openalex",
         "source_label": "OpenAlex",
         "source": str(item.get("homepage_url") or url),
@@ -349,6 +218,7 @@ def _normalize_wikidata(item: dict[str, Any], language: str = "") -> dict[str, A
     desc = str(item.get("description") or "").strip()
     return {
         "id": "wikidata:" + qid,
+        "line": "global",
         "source_kind": "wikidata",
         "source_label": "Wikidata",
         "source": str(item.get("concepturi") or item.get("url") or f"https://www.wikidata.org/wiki/{qid}"),
@@ -377,40 +247,6 @@ def _normalize_wikidata(item: dict[str, Any], language: str = "") -> dict[str, A
         "note": "Wikidata 公开实体；完整性与字段取决于社区标注，需回官网核对。",
         "ids": {"wikidata": f"https://www.wikidata.org/entity/{qid}"},
     }
-
-
-def _local_score(query: str, group: dict[str, Any]) -> int:
-    q = _norm(query)
-    best = 0
-    for term in [group.get("name", ""), group.get("short", ""), *(group.get("aliases") or [])]:
-        t = _norm(term)
-        if not t:
-            continue
-        if t == q:
-            best = max(best, 100)
-        elif t.startswith(q):
-            best = max(best, 80)
-        elif q in t:
-            best = max(best, 60)
-    return best
-
-
-def _search_local(query: str, limit: int) -> list[dict[str, Any]]:
-    q = _norm(query)
-    if not q:
-        return [dict(group) for group in LOCAL_GROUPS[:limit]]
-    rows: list[tuple[int, dict[str, Any]]] = []
-    for group in LOCAL_GROUPS:
-        score = _local_score(query, group)
-        if score:
-            rows.append((score, group))
-    rows.sort(key=lambda item: (-item[0], item[1].get("name", "")))
-    out = []
-    for score, group in rows[:limit]:
-        row = dict(group)
-        row["score"] = score
-        out.append(row)
-    return out
 
 
 def _search_ror(query: str, limit: int = REMOTE_LIMIT) -> list[dict[str, Any]]:
@@ -543,17 +379,13 @@ def _richness(row: dict[str, Any]) -> int:
     ))
 
 
-def search(query: str = "", limit: int = 20, remote: bool = True) -> list[dict[str, Any]]:
-    """先查本地核验档，再查 ROR / OpenAlex / Wikidata 全球公开记录。
-
-    空查询只返回本地补充档，避免把“本地 11 个”误当成全球全集；输入名称后并发查三个来源。
-    """
+def search_global(query: str = "", limit: int = 20, remote: bool = True) -> list[dict[str, Any]]:
+    """A 线：只查 ROR / OpenAlex / Wikidata；空查询返回空列表。"""
     q = str(query or "").strip()
-    if not q:
-        return [dict(group) for group in LOCAL_GROUPS[:limit]]
-    local = _search_local(q, limit)
+    if not q or len(_norm(q)) < 2:
+        return []
     remote_rows: list[dict[str, Any]] = []
-    if remote and len(_norm(q)) >= 2:
+    if remote:
         key = "q:" + _norm(q)
         cached = _cache_get(key)
         if cached is None:
@@ -570,16 +402,23 @@ def search(query: str = "", limit: int = 20, remote: bool = True) -> list[dict[s
             _cache_put(key, remote_rows)
         else:
             remote_rows = cached
-    rows = local + remote_rows
-    rows.sort(key=lambda row: (
-        -int(row.get("score") or 0),
-        0 if row.get("source_kind") == "local" else 1,
-        -_richness(row),
-        row.get("name", ""),
-    ))
+    rows = remote_rows
+    rows.sort(key=lambda row: (-int(row.get("score") or 0), -_richness(row), row.get("name", "")))
     for row in rows:
         _BY_ID[row["id"]] = (time.time(), row)
     return rows[:limit]
+
+
+def search_local(query: str = "", limit: int = 20) -> list[dict[str, Any]]:
+    """B 线：只查国内本地库；空查询返回空列表，不硬塞任何学校目录。"""
+    return local_store.search(query, limit=limit)
+
+
+def search(query: str = "", limit: int = 20, remote: bool = True, line: str = "global") -> list[dict[str, Any]]:
+    """兼容入口：``line="local"`` 走 B 线，其余走 A 线。绝不把两条线混成一个列表。"""
+    if str(line).lower() == "local":
+        return search_local(query, limit=limit)
+    return search_global(query, limit=limit, remote=remote)
 
 
 def _get_ror(slug: str) -> dict[str, Any] | None:
@@ -613,9 +452,9 @@ def get(group_id: str) -> dict[str, Any] | None:
     gid = str(group_id or "").strip()
     if not gid:
         return None
-    for group in LOCAL_GROUPS:
-        if group["id"] == gid:
-            return dict(group)
+    local = local_store.get(gid)
+    if local:
+        return local
     cached = _BY_ID.get(gid)
     if cached and time.time() - cached[0] <= CACHE_TTL:
         return dict(cached[1])
@@ -636,7 +475,10 @@ def get(group_id: str) -> dict[str, Any] | None:
 
 
 def resolve(identity: dict[str, Any] | None = None) -> dict[str, Any] | None:
-    """从 group_id 或 research_group 名称找到唯一研究群；找不到/不唯一都返回 None。"""
+    """从 group_id 或 research_group 名称找到唯一研究群；找不到/不唯一都返回 None。
+
+    先本地精确解析，避免为了一个校内研究所去打三个全球接口；本地没有才查 A 线。
+    """
     row = identity or {}
     group = get(row.get("group_id") or "")
     if group:
@@ -644,7 +486,10 @@ def resolve(identity: dict[str, Any] | None = None) -> dict[str, Any] | None:
     name = str(row.get("research_group") or "").strip()
     if not name:
         return None
-    rows = search(name, limit=10)
+    local = local_store.resolve(name)
+    if local:
+        return local
+    rows = search_global(name, limit=10)
     exact = [g for g in rows if g.get("name") == name or g.get("short") == name or g.get("name_zh") == name]
     return exact[0] if len(exact) == 1 else None
 
@@ -719,6 +564,7 @@ def as_json(group: dict[str, Any]) -> dict[str, Any]:
     """给前端的紧凑记录，保留来源与目录字段，不塞推断值。"""
     return {
         "id": group["id"],
+        "line": group.get("line", "global"),
         "source_kind": group.get("source_kind", "local"),
         "source_label": group.get("source_label", "本地核验档"),
         "name": group["name"],
@@ -731,6 +577,11 @@ def as_json(group: dict[str, Any]) -> dict[str, Any]:
         "unit_ror": group.get("unit_ror", ""),
         "country": group.get("country", ""),
         "country_name": group.get("country_name", ""),
+        "region": group.get("region", ""),
+        "province": group.get("province", "") or group.get("region", ""),
+        "school_code": group.get("school_code", ""),
+        "authority": group.get("authority", ""),
+        "level": group.get("level", ""),
         "leader": _leader_text(group),
         "members": group.get("members") or [],
         "directions": group.get("directions") or [],
@@ -746,4 +597,5 @@ def as_json(group: dict[str, Any]) -> dict[str, Any]:
 
 
 def all_groups() -> list[dict[str, Any]]:
-    return [as_json(group) for group in LOCAL_GROUPS]
+    """兼容旧调用：只返回本地库，不再假装是全球全集。"""
+    return [as_json(group) for group in local_store.all_units()]

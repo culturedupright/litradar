@@ -187,15 +187,30 @@ def test_team_full_unit_combines_institution_and_department() -> None:
     assert "通讯作者" not in md
 
 
-def test_group_directory_has_formal_units_and_aliases() -> None:
-    rows = groups.search("")
-    assert len(rows) == 11
+def test_local_directory_has_formal_units_and_aliases() -> None:
     center = groups.get("lzu-caoye-microbial-center")
     assert center and center["name"] == "草地微生物研究中心"
     assert center["leader"] == "南志标"
     assert "草地土壤微生物" in center["directions"]
-    assert groups.search("草微")[0]["id"] == "lzu-caoye-microbial-center"
-    assert groups.search("草保")[0]["id"] == "lzu-caoye-grassland-protection"
+    assert groups.search_local("草微")[0]["id"] == "lzu-caoye-microbial-center"
+    assert groups.search_local("草保")[0]["id"] == "lzu-caoye-grassland-protection"
+
+
+def test_local_directory_contains_management_institutes() -> None:
+    rows = groups.search_local("数智供应链管理研究所")
+    assert rows and rows[0]["id"] == "lzu-management-digital-supply-chain"
+    assert rows[0]["unit"] == "兰州大学"
+    assert rows[0]["department"] == "管理学院"
+    assert rows[0]["line"] == "local"
+
+
+def test_local_directory_contains_moe_university_base() -> None:
+    rows = groups.search_local("兰州大学", limit=5)
+    assert rows and rows[0]["type"] == "university"
+    assert rows[0]["name"] == "兰州大学"
+    stats = groups.local_store.stats()
+    assert stats["total"] >= 3196
+    assert stats["by_source"]["教育部名单"] == 3196
 
 
 def test_group_identity_patch_and_evidence() -> None:
@@ -302,10 +317,28 @@ def test_group_search_merges_global_sources_without_lzu(monkeypatch) -> None:
     assert any(row["source_kind"] == "openalex" for row in rows)
 
 
-def test_group_empty_query_only_returns_local_overlay() -> None:
-    rows = groups.search("")
-    assert len(rows) == 11
-    assert all(row["id"].startswith("lzu-caoye-") for row in rows)
+def test_two_lines_never_mix_and_empty_query_is_empty() -> None:
+    assert groups.search("") == []
+    assert groups.search_local("") == []
+    assert groups.search_global("") == []
+    assert groups.search("草微中心", line="local")[0]["id"] == "lzu-caoye-microbial-center"
+    assert all(row["line"] == "local" for row in groups.search("草微中心", line="local"))
+
+
+def test_import_local_units_csv(tmp_path) -> None:
+    store = groups.local_store
+    old_path, old_cache = store.STORE_PATH, store._CACHE
+    try:
+        store.STORE_PATH = tmp_path / "local_units.json"
+        store._CACHE = None
+        text = "名称,简称,单位,院系,负责人,来源\n测试研究中心,测中,兰州大学,测试学院,张三,https://example.org\n"
+        result = store.import_text(text)
+        assert result["added"] == 1
+        rows = store.search("测中")
+        assert rows and rows[0]["name"] == "测试研究中心"
+        assert rows[0]["leader"] == "张三"
+    finally:
+        store.STORE_PATH, store._CACHE = old_path, old_cache
 
 
 def test_team_schema_has_no_corresponding_author_fields() -> None:

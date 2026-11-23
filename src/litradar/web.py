@@ -9,7 +9,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import credentials, groups, identity, oecd, team
+from . import credentials, groups, identity, local_store, oecd, team
 from .config import DB_PATH
 from .llm import resolve_model, set_activity
 from .model_catalog import list_models
@@ -128,6 +128,14 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .suggest .item b{font-size:13px}
 .suggest .item .meta{font-size:12px;color:var(--sub);margin-top:3px}
 .suggest .item .pick{float:right;font-size:12px;color:var(--accent)}
+.linetabs{display:flex;gap:6px;flex-wrap:wrap}
+.linetabs button{padding:4px 10px;font-size:12px;border:1px solid var(--line);background:#fff;color:var(--sub);border-radius:12px;cursor:pointer}
+.linetabs button.on{border-color:var(--accent);background:#eaf5ef;color:var(--accent);font-weight:600}
+.linetabs .hint{font-size:11px;color:var(--sub);align-self:center}
+.localimport{display:none;align-items:center;gap:8px;flex-wrap:wrap;margin-top:2px}
+.localimport.on{display:flex}
+.localimport button{padding:4px 10px;font-size:12px;background:#eef1f4;color:var(--ink);border:1px solid var(--line);border-radius:6px;cursor:pointer}
+.localimport .stat{font-size:11px;color:var(--sub)}
 .match{border:1px solid var(--line);border-radius:6px;padding:9px 11px;margin:8px 0;background:#fff}
 .match .row{display:flex;align-items:flex-start;gap:9px}
 .match input[type=radio]{margin-top:5px}
@@ -229,6 +237,8 @@ let taskId=null,timer=null;
 const $=id=>document.getElementById(id);
 let CRED=null, DIMS=[], SCHEMA=null, TEAM=null, VERIFIED={}, STALE=[];
 let teamTimer=null, teamSeq=0, suggestTimer=null, suggestSeq=0;
+let GROUP_LINE=(localStorage.getItem("litradarGroupLine")==="local"?"local":"global");
+let LOCAL_STATS=null;
 function loadSettings(){
   fetch("/api/settings").then(r=>r.json()).then(d=>{
     buildOecd(d.oecd||[]);
@@ -341,7 +351,7 @@ function esc(s){
 }
 function syncVerified(id){
   const keys=["unit_ror","unit_official","group_id","group_name","group_short","group_type",
-    "group_leader","group_directions","group_platform","group_source","group_verified"];
+    "group_leader","group_directions","group_platform","group_source","group_verified","group_line"];
   const out={};keys.forEach(k=>{if(id&&id[k])out[k]=id[k];});return out;
 }
 function deptFromUnit(original, official, zh){
@@ -361,14 +371,69 @@ function hideSuggest(key){
 }
 function scheduleSuggest(key){
   clearTimeout(suggestTimer);
-  const box=$("sug_"+(key==="group"?"group":key));
-  if(box)box.innerHTML='<div class="meta">正在全球检索…</div>';
+  const box=$("sug_"+key);
+  if(box)box.innerHTML='<div class="meta">'+(key==="group"?lineBusyText():"正在检索…")+'</div>';
   suggestTimer=setTimeout(()=>loadSuggestions(key),380);
+}
+function lineBusyText(){
+  return GROUP_LINE==="local"?"正在国内本地库检索…":"正在全球公开库检索 ROR / OpenAlex / Wikidata…";
+}
+function lineHint(){
+  return GROUP_LINE==="local"
+    ?'<div class="meta">国内本地库：教育部全国高校名单（学校层）+ 已核验的校内研究所/中心/团队。输入简称、全称、别名或拼音，如“草微中心”“数智供应链”。</div>'
+    :'<div class="meta">全球公开库：输入研究所、实验室、中心或大学名称，检索 ROR / OpenAlex / Wikidata。大学内部院系若不收录，请切到“国内本地库”或手填。</div>';
+}
+function setGroupLine(line,silent){
+  GROUP_LINE=line==="local"?"local":"global";
+  try{localStorage.setItem("litradarGroupLine",GROUP_LINE);}catch(e){}
+  document.querySelectorAll(".linetabs button[data-line]").forEach(btn=>{
+    btn.classList.toggle("on",btn.dataset.line===GROUP_LINE);
+  });
+  const input=$("id_research_group");
+  if(input)input.placeholder=GROUP_LINE==="local"?"例：草微中心、数智供应链管理研究所、兰州大学":"例：Max Planck Institute for Biogeochemistry、Chinese Academy of Sciences";
+  const imp=$("localimport");if(imp)imp.classList.toggle("on",GROUP_LINE==="local");
+  if(GROUP_LINE==="local")loadLocalStats();
+  hideSuggest("group");
+  if(input&&input.value.trim()&&!silent)loadSuggestions("group");
+  else if(input&&!input.value.trim()){const box=$("sug_group");if(box)box.innerHTML=lineHint();}
+}
+function loadLocalStats(){
+  const apply=(d)=>{
+    LOCAL_STATS=d;const el=$("localstats");
+    if(el)el.textContent="本地库 "+d.total+" 条 · "+Object.entries(d.by_source||{}).map(([k,v])=>k+" "+v).join(" · ");
+  };
+  if(LOCAL_STATS){apply(LOCAL_STATS);return;}
+  fetch("/api/groups/local/stats").then(r=>r.json()).then(apply).catch(()=>{});
+}
+function downloadLocalTemplate(){
+  const csv="名称,简称,别名,单位,院系,负责人,方向,来源,核验日期,备注\\n草地微生物研究中心,草微中心,草地微生物中心,兰州大学,草地农业科技学院,南志标,草地土壤微生物;植物微生物,http://cgm.lzu.edu.cn/index.htm,2026-11-22,\\n";
+  const blob=new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);
+  a.download="litradar-local-units-template.csv";a.click();URL.revokeObjectURL(a.href);
+}
+function importLocalFile(file){
+  if(!file)return;
+  const reader=new FileReader();
+  reader.onload=()=>{
+    fetch("/api/groups/import",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({text:String(reader.result||""),source_label:"用户导入 · "+file.name})})
+      .then(r=>r.json()).then(d=>{
+        const msg=$("localmsg");
+        if(d.error){if(msg)msg.innerHTML='<span class="bad">'+esc(d.error)+'</span>';return;}
+        LOCAL_STATS=d.stats||null;
+        if(msg)msg.innerHTML='<span class="good">导入完成：新增 '+d.added+' 条，更新 '+d.updated+' 条，本地库共 '+d.total+' 条。</span>';
+        const el=$("localstats");
+        if(el&&LOCAL_STATS)el.textContent="本地库 "+LOCAL_STATS.total+" 条";
+        loadSuggestions("group");
+      }).catch(e=>{const msg=$("localmsg");if(msg)msg.textContent="导入失败："+e;});
+  };
+  reader.readAsText(file,"utf-8");
 }
 function groupFallback(q){
   const item=document.createElement("div");item.className="item";
+  const lineLabel=GROUP_LINE==="local"?"国内本地库未收录":"全球公开库未收录";
   item.innerHTML='<b>使用当前输入：'+esc(q)+'</b><span class="pick">自定义 · 采用</span>'+
-    '<div class="meta">公开库未收录也能用；单位、院系请自己补，官网请回填核对。</div>';
+    '<div class="meta">'+lineLabel+'也能用；单位、院系请自己补，官网请回填核对。</div>';
   item.onclick=()=>useCurrentGroup();
   return item;
 }
@@ -380,27 +445,41 @@ function loadSuggestions(key){
   const q=key==="unit"?unit:groupQ;
   if(key==="unit"&&q.length<2){box.innerHTML="";return;}
   const seq=++suggestSeq;
-  box.innerHTML='<div class="meta">正在检索…</div>';
   if(key==="group"){
-    if(q)box.appendChild(groupFallback(q));
-    fetch("/api/groups?q="+encodeURIComponent(q)).then(r=>r.json()).then(d=>{
-      if(seq!==suggestSeq)return;
+    const line=GROUP_LINE;
+    if(q.length<2){box.innerHTML=lineHint();if(line==="local")loadLocalStats();return;}
+    box.innerHTML='<div class="meta">'+lineBusyText()+'</div>';
+    fetch("/api/groups?line="+encodeURIComponent(line)+"&q="+encodeURIComponent(q)).then(r=>r.json()).then(d=>{
+      if(seq!==suggestSeq||line!==GROUP_LINE)return;
       if(d.error){box.innerHTML='<div class="bad">'+esc(d.error)+'</div>';return;}
-      const rows=(d.groups||[]).map(g=>({
-        html:'<b>'+esc(g.name)+'</b><span class="pick">'+esc(g.short||"")+' · 采用</span>'+
-          '<div class="meta">'+esc([g.source_label,g.type_label,g.country_name||g.country,
-          g.leader?("负责人 "+g.leader):"档案未列负责人",
-          (g.directions||[]).slice(0,2).join("；"),g.verified?("核验 "+g.verified):""].filter(Boolean).join(" · "))+'</div>',
-        click:()=>selectGroup(g)
-      }));
+      const rows=(d.groups||[]).map(g=>{
+        const meta=(g.line==="local")
+          ? [g.type_label,g.unit&&g.unit!==g.name?g.unit:"",g.department,g.source_label,
+             g.leader?("负责人 "+g.leader):"",
+             g.school_code?("标识码 "+g.school_code):"",
+             g.province||g.region?("所在地 "+(g.province||g.region)):"",
+             g.verified?("核验 "+g.verified):""]
+          : [g.source_label,g.type_label,g.country_name||g.country,
+             g.leader?("负责人 "+g.leader):"档案未列负责人",
+             (g.directions||[]).slice(0,2).join("；"),g.verified?("核验 "+g.verified):""];
+        return {
+          html:'<b>'+esc(g.name)+'</b><span class="pick">'+esc(g.short||"")+' · 采用</span>'+
+            '<div class="meta">'+esc(meta.filter(Boolean).join(" · "))+'</div>',
+          click:()=>selectGroup(g)
+        };
+      });
       box.innerHTML="";
-      if(!q){box.innerHTML='<div class="meta">输入研究所、实验室、中心或大学名称；全球检索 ROR / OpenAlex / Wikidata。</div>';return;}
+      if(!rows.length){
+        box.innerHTML='<div class="meta">'+(line==="local"?"国内本地库没有匹配。换全称/简称，或用当前输入兜底；也可导入本院研究所名单。":"全球公开库没有匹配。换英文全称，或切到国内本地库；也可用当前输入兜底。")+'</div>';
+        box.appendChild(groupFallback(q));
+        return;
+      }
       rows.forEach(r=>{
         const item=document.createElement("div");item.className="item";item.innerHTML=r.html;
         item.onclick=r.click;box.appendChild(item);
       });
       box.appendChild(groupFallback(q));
-    }).catch(e=>{if(seq===suggestSeq)box.innerHTML='<div class="bad">研究群目录读取失败：'+esc(e)+'</div>';});
+    }).catch(e=>{if(seq===suggestSeq&&line===GROUP_LINE)box.innerHTML='<div class="bad">研究单元目录读取失败：'+esc(e)+'</div>';});
     return;
   }
   fetch("/api/identity",{method:"POST",headers:{"Content-Type":"application/json"},
@@ -423,7 +502,7 @@ function loadSuggestions(key){
 }
 function clearGroupVerified(){
   ["group_id","group_name","group_short","group_type","group_leader","group_directions",
-   "group_platform","group_source","group_verified"].forEach(k=>{VERIFIED[k]="";});
+   "group_platform","group_source","group_verified","group_line"].forEach(k=>{VERIFIED[k]="";});
 }
 function selectInstitution(inst){
   const original=$("id_unit").value.trim();
@@ -454,8 +533,9 @@ function useCurrentGroup(){
   VERIFIED.group_name=q;
   VERIFIED.group_short="";
   VERIFIED.group_type="自定义科研单元（公开库未收录）";
+  VERIFIED.group_line=GROUP_LINE;
   hideSuggest("group");
-  $("lookmsg").textContent="已采用自定义研究单元："+q+"；请补单位、院系与官网核对。";
+  $("lookmsg").textContent="已采用自定义研究单元："+q+"（"+(GROUP_LINE==="local"?"国内本地库自定义":"全球库自定义")+"）；请补单位、院系与官网核对。";
   $("lookmsg").classList.add("good");
   $("lookbox").innerHTML='<div class="match"><b>研究单元档案 · '+esc(q)+'</b>'+
     '<div class="meta">自定义 · 公开库未收录 · '+esc(unit||"单位待填")+(dept?(" · "+esc(dept)):"")+'</div>'+
@@ -465,6 +545,23 @@ function useCurrentGroup(){
 function selectGroup(g){
   const unit=g.unit||g.institution||"";
   const prevUnit=($("id_unit")&&$("id_unit").value||"").trim();
+  if(g.type==="university"){
+    if($("id_unit"))$("id_unit").value=g.name||"";
+    if($("id_department"))$("id_department").value="";
+    if($("id_research_group"))$("id_research_group").value="";
+    if($("id_group_leader"))$("id_group_leader").value="";
+    clearGroupVerified();
+    VERIFIED.unit_ror=g.unit_ror||"";
+    VERIFIED.unit_official=g.name||"";
+    $("lookmsg").textContent="已采用单位："+(g.name||"")+"（学校层档案）；请继续在“国内本地库”里搜院内研究所/中心，或手填研究单元。";
+    $("lookmsg").classList.add("good");
+    hideSuggest("group");
+    $("lookbox").innerHTML='<div class="match"><b>单位档案 · '+esc(g.name||"")+'</b>'+
+      '<div class="meta">'+esc([g.type_label,g.province||g.region,g.authority,g.school_code?("标识码 "+g.school_code):""].filter(Boolean).join(" · "))+'</div>'+
+      '<div class="meta">这是学校层记录，不含校内研究所；下一步搜“草微中心”“数智供应链管理研究所”这类单元名。</div></div>';
+    scheduleTeam();
+    return;
+  }
   if(unit&&unit!==prevUnit){
     $("id_unit").value=unit;
     $("id_department").value=g.department||"";
@@ -483,11 +580,12 @@ function selectGroup(g){
   VERIFIED.group_platform=g.platform||"";
   VERIFIED.group_source=g.source||"";
   VERIFIED.group_verified=g.verified||"";
+  VERIFIED.group_line=g.line||GROUP_LINE;
   VERIFIED.unit_ror=g.unit_ror||"";
   VERIFIED.unit_official=unit;
   const src=g.source_label||"公开记录";
   $("lookmsg").textContent="已采用研究单元："+g.name+"（"+src+"）；"+
-    (g.source_kind==="local"?"来自本地核验档。":"来自全球公开库，负责人/方向需回官网核对。");
+    (g.line==="local"?"来自国内本地库，请按来源页核对负责人/方向。":"来自全球公开库，负责人/方向需回官网核对。");
   $("lookmsg").classList.add("good");
   hideSuggest("group");
   renderGroup(g);
@@ -530,7 +628,33 @@ function renderTeam(){
       const sKey=f.key==="research_group"?"group":f.key;
       input.autocomplete="off";
       input.oninput=()=>scheduleSuggest(sKey);
-      if(f.key==="research_group")input.onfocus=()=>{if(!input.value.trim())loadSuggestions("group");};
+      if(f.key==="research_group"){
+        input.placeholder=GROUP_LINE==="local"?"例：草微中心、数智供应链管理研究所、兰州大学":"例：Max Planck Institute for Biogeochemistry、Chinese Academy of Sciences";
+        input.onfocus=()=>{if(!input.value.trim())loadSuggestions("group");};
+        const tabs=document.createElement("div");tabs.className="linetabs";
+        tabs.innerHTML='<button type="button" data-line="global">全球机构库</button>'+
+          '<button type="button" data-line="local">国内本地库</button>'+
+          '<span class="hint">两条线独立检索，选哪条都行</span>';
+        tabs.querySelectorAll("button").forEach(btn=>{btn.onclick=()=>setGroupLine(btn.dataset.line);});
+        const imp=document.createElement("div");imp.className="localimport";imp.id="localimport";
+        imp.innerHTML='<button type="button" id="localtemplate">下载导入模板</button>'+
+          '<button type="button" id="localpick">导入 CSV / JSON</button>'+
+          '<input type="file" id="localfile" accept=".csv,.json,.txt" style="display:none">'+
+          '<span class="stat" id="localstats">本地库读取中…</span>'+
+          '<span class="stat" id="localmsg"></span>';
+        const sug=document.createElement("div");sug.className="suggest";sug.id="sug_"+sKey;
+        wrap.append(lab,tabs,input,imp,sug);quick.appendChild(wrap);
+        setTimeout(()=>{
+          tabs.querySelectorAll("button").forEach(btn=>{btn.classList.toggle("on",btn.dataset.line===GROUP_LINE);});
+          imp.classList.toggle("on",GROUP_LINE==="local");
+          const tpl=$("localtemplate"),pick=$("localpick"),file=$("localfile");
+          if(tpl)tpl.onclick=downloadLocalTemplate;
+          if(pick&&file)pick.onclick=()=>file.click();
+          if(file)file.onchange=()=>{importLocalFile(file.files&&file.files[0]);file.value="";};
+          if(GROUP_LINE==="local")loadLocalStats();
+        },0);
+        return;
+      }
       const sug=document.createElement("div");sug.className="suggest";sug.id="sug_"+sKey;
       wrap.append(lab,input,sug);quick.appendChild(wrap);
       return;
@@ -829,7 +953,15 @@ class Handler(BaseHTTPRequestHandler):
             return
         if route.path == "/api/groups":
             q = (query.get("q") or [""])[0]
-            self._json({"groups": [groups.as_json(g) for g in groups.search(q)]})
+            line = (query.get("line") or ["global"])[0].lower()
+            if line not in ("global", "local"):
+                line = "global"
+            rows = groups.search_local(q) if line == "local" else groups.search_global(q)
+            self._json({"groups": [groups.as_json(g) for g in rows],
+                        "line": line, "count": len(rows)})
+            return
+        if route.path == "/api/groups/local/stats":
+            self._json(local_store.stats())
             return
         if route.path == "/api/groups/profile":
             gid = (query.get("id") or [""])[0]
@@ -964,6 +1096,19 @@ class Handler(BaseHTTPRequestHandler):
             profile, evidence, note = _derive_team(payload)
             self._json({"profile": profile, "evaluation": team.evaluate(profile),
                         "evidence": evidence, "note": note})
+            return
+        if path == "/api/groups/import":
+            try:
+                if isinstance(payload.get("rows"), list):
+                    result = local_store.import_rows(payload["rows"],
+                                                     source_label=str(payload.get("source_label") or "用户导入"))
+                else:
+                    result = local_store.import_text(str(payload.get("text") or ""),
+                                                     source_label=str(payload.get("source_label") or "用户导入"))
+                result["stats"] = local_store.stats()
+                self._json(result)
+            except Exception as exc:  # noqa: BLE001
+                self._json({"error": f"本地库导入失败：{str(exc)[:200]}"}, 400)
             return
         if path != "/api/run":
             self._json({"error": "not found"}, 404)

@@ -1,5 +1,7 @@
 # 数据与本地运行产物
 data/
+!src/litradar/data/
+!src/litradar/data/*.json
 runs/
 workspace/
 .pytest_cache/

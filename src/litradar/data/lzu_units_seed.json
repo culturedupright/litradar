@@ -1,0 +1,938 @@
+[
+  {
+    "institution": "兰州大学",
+    "department": "草地农业科技学院",
+    "unit_ror": "https://ror.org/01mkqqe32",
+    "parent_id": "lzu-caoye",
+    "platform": "草种创新与草地农业生态系统全国重点实验室（学院共享，按课题组实际使用核对）",
+    "source": "https://caoye.lzu.edu.cn/xueyuangaikuang/jigoushezhi/index.html",
+    "source_kind": "cn_local",
+    "source_label": "本地核验档",
+    "verified": "2026-11-22",
+    "id": "lzu-caoye-grassland-protection",
+    "name": "草地保护研究所",
+    "short": "草保所",
+    "type": "institute",
+    "type_label": "研究所",
+    "aliases": [
+      "草地保护所",
+      "草地保护",
+      "草保"
+    ],
+    "directions": [],
+    "leader": "",
+    "members": [],
+    "note": "学院机构设置页只列名称；方向、负责人和成员需按研究所页面或公开师资补齐。",
+    "unit": "兰州大学",
+    "country": "CN",
+    "country_name": "中国",
+    "region": "甘肃",
+    "unit_aliases": [
+      "兰大",
+      "LZU",
+      "Lanzhou University"
+    ],
+    "department_aliases": [
+      "草科院",
+      "草业学院",
+      "草地农业科技学院"
+    ]
+  },
+  {
+    "institution": "兰州大学",
+    "department": "草地农业科技学院",
+    "unit_ror": "https://ror.org/01mkqqe32",
+    "parent_id": "lzu-caoye",
+    "platform": "草种创新与草地农业生态系统全国重点实验室（学院共享，按课题组实际使用核对）",
+    "source": "https://caoye.lzu.edu.cn/xueyuangaikuang/jigoushezhi/index.html",
+    "source_kind": "cn_local",
+    "source_label": "本地核验档",
+    "verified": "2026-11-22",
+    "id": "lzu-caoye-breeding-seed",
+    "name": "草类植物育种与种子研究所",
+    "short": "育种与种子所",
+    "type": "institute",
+    "type_label": "研究所",
+    "aliases": [
+      "草类植物育种与种子所",
+      "育种与种子所",
+      "育种所",
+      "草种所",
+      "种子所"
+    ],
+    "directions": [],
+    "leader": "",
+    "members": [],
+    "note": "学院机构设置页只列名称；方向、负责人和成员需按研究所页面或公开师资补齐。",
+    "unit": "兰州大学",
+    "country": "CN",
+    "country_name": "中国",
+    "region": "甘肃",
+    "unit_aliases": [
+      "兰大",
+      "LZU",
+      "Lanzhou University"
+    ],
+    "department_aliases": [
+      "草科院",
+      "草业学院",
+      "草地农业科技学院"
+    ]
+  },
+  {
+    "institution": "兰州大学",
+    "department": "草地农业科技学院",
+    "unit_ror": "https://ror.org/01mkqqe32",
+    "parent_id": "lzu-caoye",
+    "platform": "草种创新与草地农业生态系统全国重点实验室（学院共享，按课题组实际使用核对）",
+    "source": "https://caoye.lzu.edu.cn/xueyuangaikuang/jigoushezhi/index.html",
+    "source_kind": "cn_local",
+    "source_label": "本地核验档",
+    "verified": "2026-11-22",
+    "id": "lzu-caoye-grassland-ecology",
+    "name": "草地生态研究所",
+    "short": "生态所",
+    "type": "institute",
+    "type_label": "研究所",
+    "aliases": [
+      "草地生态所",
+      "生态所"
+    ],
+    "directions": [],
+    "leader": "",
+    "members": [],
+    "note": "学院机构设置页只列名称；方向、负责人和成员需按研究所页面或公开师资补齐。",
+    "unit": "兰州大学",
+    "country": "CN",
+    "country_name": "中国",
+    "region": "甘肃",
+    "unit_aliases": [
+      "兰大",
+      "LZU",
+      "Lanzhou University"
+    ],
+    "department_aliases": [
+      "草科院",
+      "草业学院",
+      "草地农业科技学院"
+    ]
+  },
+  {
+    "institution": "兰州大学",
+    "department": "草地农业科技学院",
+    "unit_ror": "https://ror.org/01mkqqe32",
+    "parent_id": "lzu-caoye",
+    "platform": "草种创新与草地农业生态系统全国重点实验室（学院共享，按课题组实际使用核对）",
+    "source": "https://caoye.lzu.edu.cn/xueyuangaikuang/jigoushezhi/index.html",
+    "source_kind": "cn_local",
+    "source_label": "本地核验档",
+    "verified": "2026-11-22",
+    "id": "lzu-caoye-rural-grassland",
+    "name": "农区草业研究所",
+    "short": "农区草业所",
+    "type": "institute",
+    "type_label": "研究所",
+    "aliases": [
+      "农区草业所",
+      "农区所"
+    ],
+    "directions": [],
+    "leader": "",
+    "members": [],
+    "note": "学院机构设置页只列名称；方向、负责人和成员需按研究所页面或公开师资补齐。",
+    "unit": "兰州大学",
+    "country": "CN",
+    "country_name": "中国",
+    "region": "甘肃",
+    "unit_aliases": [
+      "兰大",
+      "LZU",
+      "Lanzhou University"
+    ],
+    "department_aliases": [
+      "草科院",
+      "草业学院",
+      "草地农业科技学院"
+    ]
+  },
+  {
+    "institution": "兰州大学",
+    "department": "草地农业科技学院",
+    "unit_ror": "https://ror.org/01mkqqe32",
+    "parent_id": "lzu-caoye",
+    "platform": "草种创新与草地农业生态系统全国重点实验室（学院共享，按课题组实际使用核对）",
+    "source": "https://caoye.lzu.edu.cn/xueyuangaikuang/jigoushezhi/index.html",
+    "source_kind": "cn_local",
+    "source_label": "本地核验档",
+    "verified": "2026-11-22",
+    "id": "lzu-caoye-element-management",
+    "name": "草业系统元素利用与管理研究所",
+    "short": "元素利用所",
+    "type": "institute",
+    "type_label": "研究所",
+    "aliases": [
+      "草业系统元素利用与管理所",
+      "元素利用所",
+      "元素所"
+    ],
+    "directions": [],
+    "leader": "",
+    "members": [],
+    "note": "学院机构设置页只列名称；方向、负责人和成员需按研究所页面或公开师资补齐。",
+    "unit": "兰州大学",
+    "country": "CN",
+    "country_name": "中国",
+    "region": "甘肃",
+    "unit_aliases": [
+      "兰大",
+      "LZU",
+      "Lanzhou University"
+    ],
+    "department_aliases": [
+      "草科院",
+      "草业学院",
+      "草地农业科技学院"
+    ]
+  },
+  {
+    "institution": "兰州大学",
+    "department": "草地农业科技学院",
+    "unit_ror": "https://ror.org/01mkqqe32",
+    "parent_id": "lzu-caoye",
+    "platform": "草种创新与草地农业生态系统全国重点实验室（学院共享，按课题组实际使用核对）",
+    "source": "https://caoye.lzu.edu.cn/xueyuangaikuang/jigoushezhi/index.html",
+    "source_kind": "cn_local",
+    "source_label": "本地核验档",
+    "verified": "2026-11-22",
+    "id": "lzu-caoye-livestock-system",
+    "name": "草畜生产系统调控研究所",
+    "short": "草畜调控所",
+    "type": "institute",
+    "type_label": "研究所",
+    "aliases": [
+      "草畜生产系统调控所",
+      "草畜调控所",
+      "草畜所"
+    ],
+    "directions": [],
+    "leader": "",
+    "members": [],
+    "note": "学院机构设置页只列名称；方向、负责人和成员需按研究所页面或公开师资补齐。",
+    "unit": "兰州大学",
+    "country": "CN",
+    "country_name": "中国",
+    "region": "甘肃",
+    "unit_aliases": [
+      "兰大",
+      "LZU",
+      "Lanzhou University"
+    ],
+    "department_aliases": [
+      "草科院",
+      "草业学院",
+      "草地农业科技学院"
+    ]
+  },
+  {
+    "institution": "兰州大学",
+    "department": "草地农业科技学院",
+    "unit_ror": "https://ror.org/01mkqqe32",
+    "parent_id": "lzu-caoye",
+    "platform": "草种创新与草地农业生态系统全国重点实验室（学院共享，按课题组实际使用核对）",
+    "source": "https://caoye.lzu.edu.cn/xueyuangaikuang/jigoushezhi/index.html",
+    "source_kind": "cn_local",
+    "source_label": "本地核验档",
+    "verified": "2026-11-22",
+    "id": "lzu-caoye-ruminant",
+    "name": "反刍动物研究所",
+    "short": "反刍所",
+    "type": "institute",
+    "type_label": "研究所",
+    "aliases": [
+      "反刍动物所",
+      "反刍所"
+    ],
+    "directions": [],
+    "leader": "",
+    "members": [],
+    "note": "学院机构设置页只列名称；方向、负责人和成员需按研究所页面或公开师资补齐。",
+    "unit": "兰州大学",
+    "country": "CN",
+    "country_name": "中国",
+    "region": "甘肃",
+    "unit_aliases": [
+      "兰大",
+      "LZU",
+      "Lanzhou University"
+    ],
+    "department_aliases": [
+      "草科院",
+      "草业学院",
+      "草地农业科技学院"
+    ]
+  },
+  {
+    "institution": "兰州大学",
+    "department": "草地农业科技学院",
+    "unit_ror": "https://ror.org/01mkqqe32",
+    "parent_id": "lzu-caoye",
+    "platform": "草种创新与草地农业生态系统全国重点实验室（学院共享，按课题组实际使用核对）",
+    "source": "https://caoye.lzu.edu.cn/xueyuangaikuang/jigoushezhi/index.html",
+    "source_kind": "cn_local",
+    "source_label": "本地核验档",
+    "verified": "2026-11-22",
+    "id": "lzu-caoye-stress-physiology",
+    "name": "草类植物逆境生理与遗传改良研究所",
+    "short": "逆境生理所",
+    "type": "institute",
+    "type_label": "研究所",
+    "aliases": [
+      "草类植物逆境生理与遗传改良所",
+      "逆境生理所",
+      "逆境所",
+      "遗传改良所"
+    ],
+    "directions": [],
+    "leader": "",
+    "members": [],
+    "note": "学院机构设置页只列名称；方向、负责人和成员需按研究所页面或公开师资补齐。",
+    "unit": "兰州大学",
+    "country": "CN",
+    "country_name": "中国",
+    "region": "甘肃",
+    "unit_aliases": [
+      "兰大",
+      "LZU",
+      "Lanzhou University"
+    ],
+    "department_aliases": [
+      "草科院",
+      "草业学院",
+      "草地农业科技学院"
+    ]
+  },
+  {
+    "institution": "兰州大学",
+    "department": "草地农业科技学院",
+    "unit_ror": "https://ror.org/01mkqqe32",
+    "parent_id": "lzu-caoye",
+    "platform": "草种创新与草地农业生态系统全国重点实验室（学院共享，按课题组实际使用核对）",
+    "source": "https://caoye.lzu.edu.cn/xueyuangaikuang/jigoushezhi/index.html",
+    "source_kind": "cn_local",
+    "source_label": "本地核验档",
+    "verified": "2026-11-22",
+    "id": "lzu-caoye-remote-sensing-gis",
+    "name": "草地遥感与地理信息系统研究所",
+    "short": "遥感与GIS所",
+    "type": "institute",
+    "type_label": "研究所",
+    "aliases": [
+      "草地遥感与地理信息系统所",
+      "遥感与GIS所",
+      "遥感所",
+      "GIS所"
+    ],
+    "directions": [],
+    "leader": "",
+    "members": [],
+    "note": "学院机构设置页只列名称；方向、负责人和成员需按研究所页面或公开师资补齐。",
+    "unit": "兰州大学",
+    "country": "CN",
+    "country_name": "中国",
+    "region": "甘肃",
+    "unit_aliases": [
+      "兰大",
+      "LZU",
+      "Lanzhou University"
+    ],
+    "department_aliases": [
+      "草科院",
+      "草业学院",
+      "草地农业科技学院"
+    ]
+  },
+  {
+    "institution": "兰州大学",
+    "department": "草地农业科技学院",
+    "unit_ror": "https://ror.org/01mkqqe32",
+    "parent_id": "lzu-caoye",
+    "platform": "草种创新与草地农业生态系统全国重点实验室（学院共享，按课题组实际使用核对）",
+    "source": "https://caoye.lzu.edu.cn/xueyuangaikuang/jigoushezhi/index.html",
+    "source_kind": "cn_local",
+    "source_label": "本地核验档",
+    "verified": "2026-11-22",
+    "id": "lzu-caoye-system-analysis",
+    "name": "草业系统分析和社会发展研究所",
+    "short": "系统分析所",
+    "type": "institute",
+    "type_label": "研究所",
+    "aliases": [
+      "草业系统分析和社会发展所",
+      "草业系统分析所",
+      "系统分析所",
+      "社会发展所"
+    ],
+    "directions": [],
+    "leader": "",
+    "members": [],
+    "note": "学院机构设置页只列名称；方向、负责人和成员需按研究所页面或公开师资补齐。",
+    "unit": "兰州大学",
+    "country": "CN",
+    "country_name": "中国",
+    "region": "甘肃",
+    "unit_aliases": [
+      "兰大",
+      "LZU",
+      "Lanzhou University"
+    ],
+    "department_aliases": [
+      "草科院",
+      "草业学院",
+      "草地农业科技学院"
+    ]
+  },
+  {
+    "institution": "兰州大学",
+    "department": "草地农业科技学院",
+    "unit_ror": "https://ror.org/01mkqqe32",
+    "parent_id": "lzu-caoye",
+    "platform": "草种创新与草地农业生态系统全国重点实验室（中心依托）",
+    "source": "http://cgm.lzu.edu.cn/index.htm",
+    "source_kind": "cn_local",
+    "source_label": "本地核验档",
+    "verified": "2026-11-22",
+    "id": "lzu-caoye-microbial-center",
+    "name": "草地微生物研究中心",
+    "short": "草微中心",
+    "type": "center",
+    "type_label": "研究中心",
+    "aliases": [
+      "草微中心",
+      "草地微生物中心",
+      "微生物中心",
+      "草微"
+    ],
+    "leader": "南志标",
+    "deputy_leaders": [
+      "苟小军",
+      "杨云锋"
+    ],
+    "chief_scientist": "周集中",
+    "members": [
+      "邓建明",
+      "李祥锴",
+      "张金林"
+    ],
+    "directions": [
+      "草地土壤微生物",
+      "植物微生物",
+      "动物微生物",
+      "系统微生物学理论与技术"
+    ],
+    "platform_level": "全国重点实验室",
+    "note": "中心 2019 年成立；官网教师风采只列部分成员，完整名单需向中心确认。",
+    "unit": "兰州大学",
+    "country": "CN",
+    "country_name": "中国",
+    "region": "甘肃",
+    "unit_aliases": [
+      "兰大",
+      "LZU",
+      "Lanzhou University"
+    ],
+    "department_aliases": [
+      "草科院",
+      "草业学院",
+      "草地农业科技学院"
+    ]
+  },
+  {
+    "unit": "兰州大学",
+    "institution": "兰州大学",
+    "department": "管理学院",
+    "unit_ror": "https://ror.org/01mkqqe32",
+    "country": "CN",
+    "country_name": "中国",
+    "region": "甘肃",
+    "source": "https://ms.lzu.edu.cn/xygk/jxxjyjszx",
+    "source_kind": "cn_local",
+    "source_label": "本地核验档",
+    "verified": "2026-11-23",
+    "platform": "",
+    "platform_level": "",
+    "members": [],
+    "target": "",
+    "id": "lzu-management-government-performance",
+    "name": "中国政府绩效管理研究中心",
+    "short": "政府绩效中心",
+    "type": "center",
+    "type_label": "研究中心",
+    "aliases": [
+      "政府绩效管理研究中心",
+      "政府绩效中心",
+      "绩效中心"
+    ],
+    "leader": "包国宪",
+    "deputy_leaders": [
+      "沙勇忠",
+      "王学军",
+      "马翔"
+    ],
+    "directions": [
+      "政府绩效评估",
+      "公共治理"
+    ],
+    "note": "按管理学院官网研究所（中心）名单整理；方向和成员需回中心页面核对。",
+    "unit_aliases": [
+      "兰大",
+      "LZU",
+      "Lanzhou University"
+    ],
+    "department_aliases": [
+      "管院",
+      "兰大管院",
+      "管理学院"
+    ]
+  },
+  {
+    "unit": "兰州大学",
+    "institution": "兰州大学",
+    "department": "管理学院",
+    "unit_ror": "https://ror.org/01mkqqe32",
+    "country": "CN",
+    "country_name": "中国",
+    "region": "甘肃",
+    "source": "https://ms.lzu.edu.cn/xygk/jxxjyjszx",
+    "source_kind": "cn_local",
+    "source_label": "本地核验档",
+    "verified": "2026-11-23",
+    "platform": "",
+    "platform_level": "",
+    "members": [],
+    "target": "",
+    "id": "lzu-management-smart-emergency",
+    "name": "智慧应急管理研究所",
+    "short": "智慧应急所",
+    "type": "institute",
+    "type_label": "研究所",
+    "aliases": [
+      "智慧应急管理所",
+      "应急管理研究所",
+      "应急所"
+    ],
+    "leader": "沙勇忠",
+    "deputy_leaders": [
+      "曲宗希"
+    ],
+    "directions": [
+      "应急管理",
+      "智慧应急"
+    ],
+    "note": "按管理学院官网研究所（中心）名单整理；方向和成员需回所页面核对。",
+    "unit_aliases": [
+      "兰大",
+      "LZU",
+      "Lanzhou University"
+    ],
+    "department_aliases": [
+      "管院",
+      "兰大管院",
+      "管理学院"
+    ]
+  },
+  {
+    "unit": "兰州大学",
+    "institution": "兰州大学",
+    "department": "管理学院",
+    "unit_ror": "https://ror.org/01mkqqe32",
+    "country": "CN",
+    "country_name": "中国",
+    "region": "甘肃",
+    "source": "https://ms.lzu.edu.cn/xygk/jxxjyjszx",
+    "source_kind": "cn_local",
+    "source_label": "本地核验档",
+    "verified": "2026-11-23",
+    "platform": "",
+    "platform_level": "",
+    "members": [],
+    "target": "",
+    "id": "lzu-management-modern-finance",
+    "name": "现代财政治理研究所",
+    "short": "现代财政所",
+    "type": "institute",
+    "type_label": "研究所",
+    "aliases": [
+      "现代财政所",
+      "财政治理研究所",
+      "财政所"
+    ],
+    "leader": "何文盛",
+    "deputy_leaders": [
+      "于连超"
+    ],
+    "directions": [
+      "现代财政",
+      "预算治理"
+    ],
+    "note": "按管理学院官网研究所（中心）名单整理；方向和成员需回所页面核对。",
+    "unit_aliases": [
+      "兰大",
+      "LZU",
+      "Lanzhou University"
+    ],
+    "department_aliases": [
+      "管院",
+      "兰大管院",
+      "管理学院"
+    ]
+  },
+  {
+    "unit": "兰州大学",
+    "institution": "兰州大学",
+    "department": "管理学院",
+    "unit_ror": "https://ror.org/01mkqqe32",
+    "country": "CN",
+    "country_name": "中国",
+    "region": "甘肃",
+    "source": "https://ms.lzu.edu.cn/xygk/jxxjyjszx",
+    "source_kind": "cn_local",
+    "source_label": "本地核验档",
+    "verified": "2026-11-23",
+    "platform": "",
+    "platform_level": "",
+    "members": [],
+    "target": "",
+    "id": "lzu-management-digital-government",
+    "name": "数字政府治理研究所",
+    "short": "数字政府所",
+    "type": "institute",
+    "type_label": "研究所",
+    "aliases": [
+      "数字政府所",
+      "数字治理研究所"
+    ],
+    "leader": "沈孝强",
+    "directions": [
+      "数字政府",
+      "数据治理"
+    ],
+    "note": "按管理学院官网研究所（中心）名单整理；方向和成员需回所页面核对。",
+    "unit_aliases": [
+      "兰大",
+      "LZU",
+      "Lanzhou University"
+    ],
+    "department_aliases": [
+      "管院",
+      "兰大管院",
+      "管理学院"
+    ]
+  },
+  {
+    "unit": "兰州大学",
+    "institution": "兰州大学",
+    "department": "管理学院",
+    "unit_ror": "https://ror.org/01mkqqe32",
+    "country": "CN",
+    "country_name": "中国",
+    "region": "甘肃",
+    "source": "https://ms.lzu.edu.cn/xygk/jxxjyjszx",
+    "source_kind": "cn_local",
+    "source_label": "本地核验档",
+    "verified": "2026-11-23",
+    "platform": "",
+    "platform_level": "",
+    "members": [],
+    "target": "",
+    "id": "lzu-management-public-policy",
+    "name": "公共政策研究所",
+    "short": "公共政策所",
+    "type": "institute",
+    "type_label": "研究所",
+    "aliases": [
+      "公共政策所",
+      "政策研究所"
+    ],
+    "leader": "保海旭",
+    "directions": [
+      "公共政策",
+      "政策评估"
+    ],
+    "note": "按管理学院官网研究所（中心）名单整理；方向和成员需回所页面核对。",
+    "unit_aliases": [
+      "兰大",
+      "LZU",
+      "Lanzhou University"
+    ],
+    "department_aliases": [
+      "管院",
+      "兰大管院",
+      "管理学院"
+    ]
+  },
+  {
+    "unit": "兰州大学",
+    "institution": "兰州大学",
+    "department": "管理学院",
+    "unit_ror": "https://ror.org/01mkqqe32",
+    "country": "CN",
+    "country_name": "中国",
+    "region": "甘肃",
+    "source": "https://ms.lzu.edu.cn/xygk/jxxjyjszx",
+    "source_kind": "cn_local",
+    "source_label": "本地核验档",
+    "verified": "2026-11-23",
+    "platform": "",
+    "platform_level": "",
+    "members": [],
+    "target": "",
+    "id": "lzu-management-ai-strategy",
+    "name": "人工智能战略研究所",
+    "short": "AI战略所",
+    "type": "institute",
+    "type_label": "研究所",
+    "aliases": [
+      "人工智能战略所",
+      "AI战略研究所",
+      "人工智能研究所"
+    ],
+    "leader": "王宇",
+    "directions": [
+      "人工智能战略",
+      "数字治理"
+    ],
+    "note": "按管理学院官网研究所（中心）名单整理；方向和成员需回所页面核对。",
+    "unit_aliases": [
+      "兰大",
+      "LZU",
+      "Lanzhou University"
+    ],
+    "department_aliases": [
+      "管院",
+      "兰大管院",
+      "管理学院"
+    ]
+  },
+  {
+    "unit": "兰州大学",
+    "institution": "兰州大学",
+    "department": "管理学院",
+    "unit_ror": "https://ror.org/01mkqqe32",
+    "country": "CN",
+    "country_name": "中国",
+    "region": "甘肃",
+    "source": "https://ms.lzu.edu.cn/xygk/jxxjyjszx",
+    "source_kind": "cn_local",
+    "source_label": "本地核验档",
+    "verified": "2026-11-23",
+    "platform": "",
+    "platform_level": "",
+    "members": [],
+    "target": "",
+    "id": "lzu-management-digital-marketing",
+    "name": "数字营销管理研究所",
+    "short": "数字营销所",
+    "type": "institute",
+    "type_label": "研究所",
+    "aliases": [
+      "数字营销所",
+      "营销管理研究所"
+    ],
+    "leader": "柳武妹",
+    "directions": [
+      "消费者行为",
+      "品牌管理",
+      "渠道管理",
+      "服务营销"
+    ],
+    "note": "按管理学院官网研究所（中心）名单整理；方向和成员需回所页面核对。",
+    "unit_aliases": [
+      "兰大",
+      "LZU",
+      "Lanzhou University"
+    ],
+    "department_aliases": [
+      "管院",
+      "兰大管院",
+      "管理学院"
+    ]
+  },
+  {
+    "unit": "兰州大学",
+    "institution": "兰州大学",
+    "department": "管理学院",
+    "unit_ror": "https://ror.org/01mkqqe32",
+    "country": "CN",
+    "country_name": "中国",
+    "region": "甘肃",
+    "source": "https://ms.lzu.edu.cn/xygk/jxxjyjszx",
+    "source_kind": "cn_local",
+    "source_label": "本地核验档",
+    "verified": "2026-11-23",
+    "platform": "",
+    "platform_level": "",
+    "members": [],
+    "target": "",
+    "id": "lzu-management-digital-hrm",
+    "name": "数智化人力资源管理研究所",
+    "short": "数智人力所",
+    "type": "institute",
+    "type_label": "研究所",
+    "aliases": [
+      "数智化人力资源所",
+      "数智人力所",
+      "人力资源研究所"
+    ],
+    "leader": "卫旭华",
+    "directions": [
+      "人力资源管理",
+      "组织行为"
+    ],
+    "note": "按管理学院官网研究所（中心）名单整理；方向和成员需回所页面核对。",
+    "unit_aliases": [
+      "兰大",
+      "LZU",
+      "Lanzhou University"
+    ],
+    "department_aliases": [
+      "管院",
+      "兰大管院",
+      "管理学院"
+    ]
+  },
+  {
+    "unit": "兰州大学",
+    "institution": "兰州大学",
+    "department": "管理学院",
+    "unit_ror": "https://ror.org/01mkqqe32",
+    "country": "CN",
+    "country_name": "中国",
+    "region": "甘肃",
+    "source": "https://ms.lzu.edu.cn/xygk/jxxjyjszx",
+    "source_kind": "cn_local",
+    "source_label": "本地核验档",
+    "verified": "2026-11-23",
+    "platform": "",
+    "platform_level": "",
+    "members": [],
+    "target": "",
+    "id": "lzu-management-intelligent-finance",
+    "name": "智能财务管理研究所",
+    "short": "智能财务所",
+    "type": "institute",
+    "type_label": "研究所",
+    "aliases": [
+      "智能财务所",
+      "财务管理研究所"
+    ],
+    "leader": "罗劲博",
+    "deputy_leaders": [
+      "马宁"
+    ],
+    "directions": [
+      "财务管理",
+      "智能财务"
+    ],
+    "note": "按管理学院官网研究所（中心）名单整理；方向和成员需回所页面核对。",
+    "unit_aliases": [
+      "兰大",
+      "LZU",
+      "Lanzhou University"
+    ],
+    "department_aliases": [
+      "管院",
+      "兰大管院",
+      "管理学院"
+    ]
+  },
+  {
+    "unit": "兰州大学",
+    "institution": "兰州大学",
+    "department": "管理学院",
+    "unit_ror": "https://ror.org/01mkqqe32",
+    "country": "CN",
+    "country_name": "中国",
+    "region": "甘肃",
+    "source": "https://ms.lzu.edu.cn/xygk/jxxjyjszx",
+    "source_kind": "cn_local",
+    "source_label": "本地核验档",
+    "verified": "2026-11-23",
+    "platform": "",
+    "platform_level": "",
+    "members": [],
+    "target": "",
+    "id": "lzu-management-digital-supply-chain",
+    "name": "数智供应链管理研究所",
+    "short": "数智供应链所",
+    "type": "institute",
+    "type_label": "研究所",
+    "aliases": [
+      "数智供应链所",
+      "供应链管理研究所",
+      "供应链所"
+    ],
+    "leader": "王康周",
+    "directions": [
+      "运营与供应链管理",
+      "系统可靠性",
+      "项目管理",
+      "创新创业管理"
+    ],
+    "note": "按管理学院官网研究所（中心）名单整理；方向和成员需回所页面核对。",
+    "unit_aliases": [
+      "兰大",
+      "LZU",
+      "Lanzhou University"
+    ],
+    "department_aliases": [
+      "管院",
+      "兰大管院",
+      "管理学院"
+    ]
+  },
+  {
+    "unit": "兰州大学",
+    "institution": "兰州大学",
+    "department": "管理学院",
+    "unit_ror": "https://ror.org/01mkqqe32",
+    "country": "CN",
+    "country_name": "中国",
+    "region": "甘肃",
+    "source": "https://ms.lzu.edu.cn/xsdt/content_16988",
+    "source_kind": "cn_local",
+    "source_label": "本地核验档",
+    "verified": "2026-11-23",
+    "platform": "",
+    "platform_level": "",
+    "members": [],
+    "target": "",
+    "id": "lzu-management-decision-data-team",
+    "name": "管理决策与数据科学研究团队",
+    "short": "管理决策团队",
+    "type": "research_team",
+    "type_label": "研究团队",
+    "aliases": [
+      "管理决策与数据科学团队",
+      "管理科学与工程研究团队",
+      "管理决策团队"
+    ],
+    "leader": "张哲",
+    "directions": [
+      "运营与供应链管理",
+      "系统可靠性",
+      "项目管理",
+      "创新创业管理"
+    ],
+    "note": "学院系列研讨会公开页面可见的科研团队；苑春多次参加并主持研讨会，正式成员名单以学院为准。",
+    "unit_aliases": [
+      "兰大",
+      "LZU",
+      "Lanzhou University"
+    ],
+    "department_aliases": [
+      "管院",
+      "兰大管院",
+      "管理学院"
+    ]
+  }
+]
